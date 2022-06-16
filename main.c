@@ -124,9 +124,9 @@ int keymap[KEY_MAX] = {
     //[KEY_UNKNOWN]=RETROK_GREATER,
     [KEY_QUESTION]=RETROK_QUESTION,
     //[KEY_UNKNOWN]=RETROK_AT,
-    //[KEY_UNKNOWN]=RETROK_LEFTBRACKET,
+    [KEY_LEFTBRACE]=RETROK_LEFTBRACKET,
     [KEY_BACKSLASH]=RETROK_BACKSLASH,
-    //[KEY_UNKNOWN]=RETROK_RIGHTBRACKET,
+    [KEY_RIGHTBRACE]=RETROK_RIGHTBRACKET,
     //[KEY_UNKNOWN]=RETROK_CARET,
     //[KEY_UNKNOWN]=RETROK_UNDERSCORE,
     [KEY_GRAVE]=RETROK_BACKQUOTE,
@@ -156,9 +156,9 @@ int keymap[KEY_MAX] = {
     [KEY_X]=RETROK_x,
     [KEY_Y]=RETROK_y,
     [KEY_Z]=RETROK_z,
-    [KEY_LEFTBRACE]=RETROK_LEFTBRACE,
+    //[KEY_UNKNOWN]=RETROK_LEFTBRACE,
     //[KEY_UNKNOWN]=RETROK_BAR,
-    [KEY_RIGHTBRACE]=RETROK_RIGHTBRACE,
+    //[KEY_UNKNOWN]=RETROK_RIGHTBRACE,
     //[KEY_UNKNOWN]=RETROK_TILDE,
     [KEY_DELETE]=RETROK_DELETE,
 
@@ -976,8 +976,11 @@ int main(int argc, char** argv) {
     } else if(!strcmp(argv[1], "atari")) {
         cname = "/opt/retropie/libretrocores/lr-atari800/atari800_libretro.so"; // ok, aspect unknown
         path = "./mrrobot.atr";
-    } else if(!strcmp(argv[1], "atarilib")) {
-        cname = "/home/pi/GIT/libretro-atari800lib/libatari800lib-retro.so";
+    } else if(!strcmp(argv[1], "atari5200")) {
+        cname = "/home/pi/GIT/libretro-atari800lib/libatari800-5200_libretro.so";
+        path = "./mrrobot.atr";
+    } else if(!strcmp(argv[1], "atari800")) {
+        cname = "/home/pi/GIT/libretro-atari800lib/libatari800_libretro.so";
         path = "./mrrobot.atr";
     } else if(!strcmp(argv[1], "atari2600")) {
         cname = "/opt/retropie/libretrocores/lr-stella2014/stella2014_libretro.so"; // ok, aspect unknown
@@ -1041,7 +1044,7 @@ int main(int argc, char** argv) {
     } else {
         result = core.retro_load_game(NULL);
     }
-    core.retro_set_controller_port_device(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 1));
+    core.retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
     core.retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
     if (!result) {
         rt_log("game load failed\n");
