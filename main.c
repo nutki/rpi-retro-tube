@@ -333,18 +333,24 @@ int pixel_format_to_size(enum retro_pixel_format fmt) {
     return 0;
 }
 
+static int current_zoom = 0x200, current_dx, current_dy, needs_pos_update = 0;
+static int apply_zoom(int v) {
+    return (v * current_zoom) >> 8;
+}
+
+
 void dispmanx_show(const char *buf, int w, int h, int pitch) {
     current_screen = buf;
     if (!rsavi.geometry.aspect_ratio) rsavi.geometry.aspect_ratio = (float)w/h;
     int pitch_w = pitch/pixel_format_to_size(new_mode);
-    if (pitch != current_pitch || w != current_w || h != current_h || new_mode != current_mode) {
+    if (pitch != current_pitch || w != current_w || h != current_h || new_mode != current_mode || needs_pos_update) {
     	uint32_t vc_image_ptr = 0;
         DISPMANX_RESOURCE_HANDLE_T new_resource = vc_dispmanx_resource_create(pixel_format_to_mode(new_mode), pitch_w, h, &vc_image_ptr);
 	    DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
 	    VC_RECT_T srcRect, dstRect;
     	vc_dispmanx_rect_set(&srcRect, 0, 0, w << 16, h << 16);
             int target_w = (w * screenX * 3 / 4 / screenY) * (rsavi.geometry.aspect_ratio*h/w);
-    	    vc_dispmanx_rect_set(&dstRect, (screenX - target_w*2)/2, (screenY-h*2)/2, target_w * 2, h*2);
+    	    vc_dispmanx_rect_set(&dstRect, (screenX - apply_zoom(target_w))/2 + current_dx, (screenY-apply_zoom(h))/2 + current_dy, apply_zoom(target_w), apply_zoom(h));
         vc_dispmanx_element_change_source(update, element, new_resource);
         vc_dispmanx_element_change_attributes(update, element, ELEMENT_CHANGE_SRC_RECT | ELEMENT_CHANGE_DEST_RECT, 0, 0, &dstRect, &srcRect, 0, 0);
 	    vc_dispmanx_update_submit_sync(update);
@@ -360,6 +366,7 @@ void dispmanx_show(const char *buf, int w, int h, int pitch) {
     current_w = w;
     current_pitch = pitch;
     current_mode = new_mode;
+    needs_pos_update = 0;
 //    DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
 	VC_RECT_T bmpRect;
 //	VC_RECT_T zeroRect;
@@ -1075,10 +1082,17 @@ int main(int argc, char** argv) {
         rt_log("state deserialized\n");
         }
     }
+    int zoom_target = 0x200;
     for(int i = 0; ; i++) {
         int64_t s = timestamp();
 //        if (frame_time_ms < 1000) rt_log("%lld %lf\n", frame_time_ms, *magic * 2);//frame_time_ms = 16666;
-        if(poll_input()) break;
+        if(poll_input()) {
+            zoom_target ^= 0x300;            
+        }
+        if (zoom_target != current_zoom) {
+            current_zoom += current_zoom > zoom_target ? -8 : 8;
+            needs_pos_update = 1;
+        }
         core.retro_run();
         int64_t frame_time_ms = 1000000 / rsavi.timing.fps;
         int64_t d = timestamp() - s;
