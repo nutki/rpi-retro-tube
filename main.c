@@ -648,11 +648,11 @@ bool retro_environment(unsigned int cmd, void *data) {
             return true;
         }
         case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS: {
-            const struct retro_input_descriptor *desc = data;
+//            const struct retro_input_descriptor *desc = data;
             rt_log("ENV: RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS\n");
-            for (; desc->description; desc++) {
-                rt_log("ENV:  %s\n", desc->description);
-            }
+            // for (; desc->description; desc++) {
+            //     rt_log("ENV:  %s\n", desc->description);
+            // }
             return true;
         }
         case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
@@ -930,9 +930,33 @@ void load_state_2() {
     core.retro_unserialize(game_state.state, game_state.header.state_data_size);
     rt_log("state loaded 2 (size = %d)\n", game_state.header.state_data_size);
 }
+int comm_socket = -1;
+void setnonblocking(int sock) {
+    int opt;
+
+    opt = fcntl(sock, F_GETFL);
+    if (opt < 0) {
+        printf("fcntl(F_GETFL) fail.");
+    }
+    opt |= O_NONBLOCK;
+    if (fcntl(sock, F_SETFL, opt) < 0) {
+        printf("fcntl(F_SETFL) fail.");
+    }
+}
+void read_comm() {
+    if (comm_socket == -1) return;
+    setnonblocking(comm_socket);
+    char buf[4096];
+    int v = read(comm_socket, buf, sizeof(buf));
+    if (v <= 0) return;
+    rt_log("GOT MESSAGE %d\n", *(int*)buf);
+}
 int main(int argc, char** argv) {
     const char *cname = 0, *path = 0;
+    const char *env_socket = getenv("S");
+    if (env_socket) comm_socket = atoi(getenv("S"));
     gettimeofday(&logstart, NULL);
+    rt_log("COMM SOCKET %d\n", comm_socket);
     init_input();
     rt_log("INPUT STARTED\n");
     dispmanx_init();
@@ -1084,6 +1108,7 @@ int main(int argc, char** argv) {
     }
     int zoom_target = 0x200;
     for(int i = 0; ; i++) {
+        read_comm();
         int64_t s = timestamp();
 //        if (frame_time_ms < 1000) rt_log("%lld %lf\n", frame_time_ms, *magic * 2);//frame_time_ms = 16666;
         if(poll_input()) {
