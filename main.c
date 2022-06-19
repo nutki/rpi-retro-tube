@@ -12,7 +12,7 @@
 #include <fcntl.h>
 #include <linux/input.h>
 #include "lz4.h"
-
+#include "main.h"
 
 struct timeval logstart;
 int64_t timestamp() {
@@ -689,10 +689,10 @@ bool retro_environment(unsigned int cmd, void *data) {
                 var->value = "enabled";
                 return true;
             }
-            if (!strcmp(var->key, "atari800_system")) {
-                var->value = "5200";
-                return true;
-            }
+            // if (!strcmp(var->key, "atari800_system")) {
+            //     var->value = "5200";
+            //     return true;
+            // }
             if (!strcmp(var->key, "vice_resid_sampling")) {
                 var->value = "fast";
                 return true;
@@ -796,7 +796,7 @@ void retro_input_poll(void) {
 int16_t retro_input_state(unsigned int port, unsigned int device, unsigned int index, unsigned int id) {
 //    rt_log("INP: get state %d/%d/%d/%d\n", port, device, index, id);
     if (device == RETRO_DEVICE_KEYBOARD) {
-        return keyboardstate[id];
+        return (keyboardstate[id >> 3] >> (id & 7)) & 1;
     }
     if (port == 0) {
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return btn_state;
@@ -947,18 +947,38 @@ void read_comm() {
     if (comm_socket == -1) return;
     setnonblocking(comm_socket);
     char buf[4096];
-    int v = read(comm_socket, buf, sizeof(buf));
-    if (v <= 0) return;
-    rt_log("GOT MESSAGE %d\n", *(int*)buf);
+    while(read(comm_socket, buf, sizeof(buf)) > 0) {
+        int msg_type = *(int*)buf;
+        if (msg_type == KEYBOARD_DATA) {
+            struct message_keyboard_data *k = (void*)buf;
+            int len = sizeof(k->data);
+            for (int i = 0; i < len; i++) if (keyboardstate[i] != k->data[i]) {
+                if (retro_keyboard_event) for (int j = 0; j < 8; j++) {
+                    int id = i * 8 + j;
+                    if ((keyboardstate[i] ^ k->data[i]) & (1<<j)) {
+                        retro_keyboard_event(k->data[i] & (1<<j) ? 1 : 0, id, 0, 0);
+                    }
+                }
+                keyboardstate[i] = k->data[i];
+            }
+        } else if (msg_type == INPUT_DATA) {
+            struct message_input_data *k = (void*)buf;
+//            rt_log("BTN %04X\n", k->data[JOYPAD_BUTTONS]);
+            btn_state = k->data[JOYPAD_BUTTONS];
+        } else {
+            rt_log("GOT MESSAGE %d\n", msg_type);
+        }
+    };
 }
+#pragma GCC optimize ("O0")
 int main(int argc, char** argv) {
     const char *cname = 0, *path = 0;
     const char *env_socket = getenv("S");
     if (env_socket) comm_socket = atoi(getenv("S"));
     gettimeofday(&logstart, NULL);
     rt_log("COMM SOCKET %d\n", comm_socket);
-    init_input();
-    rt_log("INPUT STARTED\n");
+//    init_input();
+//    rt_log("INPUT STARTED\n");
     dispmanx_init();
 
     struct retro_system_info rsi;
@@ -1006,7 +1026,7 @@ int main(int argc, char** argv) {
         path = "/home/pi//RetroPie/roms/zxspectrum/3D Deathchase (1983)(Zeppelin Games Ltd).tzx";
     } else if(!strcmp(argv[1], "atari")) {
         cname = "/opt/retropie/libretrocores/lr-atari800/atari800_libretro.so"; // ok, aspect unknown
-        path = "./mrrobot.atr";
+        path = "/home/pi/Mr. Robot and His Robot Factory (1983)(Datamost)(US)[h SOL].atr";
     } else if(!strcmp(argv[1], "atari5200")) {
         cname = "/home/pi/GIT/libretro-atari800lib/libatari800-5200_libretro.so";
         path = "./mrrobot.atr";
@@ -1111,19 +1131,18 @@ int main(int argc, char** argv) {
         read_comm();
         int64_t s = timestamp();
 //        if (frame_time_ms < 1000) rt_log("%lld %lf\n", frame_time_ms, *magic * 2);//frame_time_ms = 16666;
-        if(poll_input()) {
-            zoom_target ^= 0x300;            
-        }
-        if (zoom_target != current_zoom) {
-            current_zoom += current_zoom > zoom_target ? -8 : 8;
-            needs_pos_update = 1;
-        }
+        // if(poll_input()) {
+        //     zoom_target ^= 0x300;            
+        // }
+        // if (zoom_target != current_zoom) {
+        //     current_zoom += current_zoom > zoom_target ? -8 : 8;
+        //     needs_pos_update = 1;
+        // }
         core.retro_run();
         int64_t frame_time_ms = 1000000 / rsavi.timing.fps;
         int64_t d = timestamp() - s;
 //        int64_t t = (int64_t)(1000000 / rsavi.timing.fps) - d;
-        int64_t t = frame_time_ms - d;
-        if (t > 0) usleep(t);
+        if (frame_time_ms > d) usleep(frame_time_ms - d);
     }
     rt_log("core run\n");
     if (0) {
@@ -1159,3 +1178,4 @@ int main(int argc, char** argv) {
 
     return EXIT_SUCCESS;
 }
+#pragma GCC reset_options

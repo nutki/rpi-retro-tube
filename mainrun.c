@@ -2,31 +2,16 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
-enum rt_message_type {
-    LOAD_GAME = 1, // + path
-    START_GAME = 2,
-    PAUSE_GAME = 3,
-    LOAD_STATE = 3,
-    SAVE_STATE = 4, // + save state path
-    UNLOAD_GAME = 5,
-    FF_GAME = 6,
-    INPUT_DATA = 7, // + events uint32
-    KEYBOARD_DATA = 7 // 320/8 = 40b or events uint32[]
-    VIDEO_OUT = 8, // uint32[]
-    AUDIO_OUT = 9
-    OPTION_SET = 9, // char*[]
-    VSYNC = 10,
+#include <string.h>
 
-    OPTION_DESC = 129,
-};
-
-// port devices = 16-128 (4-8)
-// kb (1) (port 3b + input 6b)/(key 9b) = 10b (1024*2 = 2048)       
-// rt message input event = port/kb (4 bit) + inputid (9bit) + value (16bit)
+#include "maininput.h"
+#include "main.h"
 struct core_worker {
     int comm_socket;
     int worker_pid;
 };
+
+
 
 struct core_worker *core_start(char *id) {
     int s[2];
@@ -57,9 +42,28 @@ struct core_worker *core_start(char *id) {
 void core_message(struct core_worker *core, int message) {
     write(core->comm_socket, &message, sizeof(message));
 }
+void core_message_keyboard_data(struct core_worker *core) {
+    struct message_keyboard_data message = { KEYBOARD_DATA };
+    memcpy(message.data, keyboardstate, sizeof(keyboardstate));
+    write(core->comm_socket, &message, sizeof(message));
+}
+void core_message_input_data(struct core_worker *core) {
+    struct message_input_data message = { INPUT_DATA };
+    message.port = 0;
+    memcpy(message.data, joy_state, sizeof(joy_state));
+    write(core->comm_socket, &message, sizeof(message));
+}
 int main() {
+    init_input();
     struct core_worker *c = core_start("atari800");
     core_message(c, 42);
-    pause();
+    for (;;) {
+        int r = poll_input();
+        if (r) {
+            core_message_input_data(c);
+            core_message_keyboard_data(c);
+        }
+        usleep(10000);
+    }
     return 0;
 }

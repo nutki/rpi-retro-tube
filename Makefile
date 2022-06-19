@@ -5,4 +5,4 @@ all: main mainrun
 
 main: main.o lz4.o
 
-mainrun: mainrun.o
+mainrun: mainrun.o maininput.o
