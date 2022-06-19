@@ -46,5 +46,10 @@ struct message_keyboard_data {
         int port;
         int16_t data[CONTROLS_MAX];
     };
+    struct message_video_out {
+        int type;
+        int posx, posy;
+        int zoom;
+    };
 
 #endif

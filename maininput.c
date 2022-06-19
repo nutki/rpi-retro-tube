@@ -201,9 +201,12 @@ int poll_input() {
             if (ev.code == BTN_TR) setbtn(RETRO_DEVICE_ID_JOYPAD_R, ev.value);
             if (ev.code == BTN_THUMBL) setbtn(RETRO_DEVICE_ID_JOYPAD_L3, ev.value);
             if (ev.code == BTN_THUMBR) setbtn(RETRO_DEVICE_ID_JOYPAD_R3, ev.value);
-            if (ev.code == BTN_MODE) mode_state = ev.value;
+            if (ev.code == BTN_MODE) {
+                if (!mode_state && ev.value) ret |= 32;
+                mode_state = ev.value;
+            }
         }
-        ret = 1;
+        ret |= 1;
     }
     while (read(kbdfd, &ev, sizeof(ev)) > 0)
     {
@@ -211,7 +214,7 @@ int poll_input() {
 //            rt_log("%d %d %d\n", ev.code, ev.type, ev.value);
             setkey(keymap[ev.code], ev.value);
         }
-        ret = 1;
+        ret |= 16;
     }
     
     return ret;

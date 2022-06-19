@@ -42,26 +42,50 @@ struct core_worker *core_start(char *id) {
 void core_message(struct core_worker *core, int message) {
     write(core->comm_socket, &message, sizeof(message));
 }
-void core_message_keyboard_data(struct core_worker *core) {
+void core_message_keyboard_data(struct core_worker *core, uint8_t *data) {
     struct message_keyboard_data message = { KEYBOARD_DATA };
-    memcpy(message.data, keyboardstate, sizeof(keyboardstate));
+    if (data) memcpy(message.data, data, sizeof(message.data));
+    else memset(message.data, 0, sizeof(message.data));
     write(core->comm_socket, &message, sizeof(message));
 }
-void core_message_input_data(struct core_worker *core) {
+void core_message_input_data(struct core_worker *core, int port, int16_t *data) {
     struct message_input_data message = { INPUT_DATA };
-    message.port = 0;
-    memcpy(message.data, joy_state, sizeof(joy_state));
+    message.port = port;
+    if (data) memcpy(message.data, data, sizeof(message.data));
+    else memset(message.data, 0, sizeof(message.data));
     write(core->comm_socket, &message, sizeof(message));
+}
+void core_message_video_out(struct core_worker *core, int x, int y, int zoom) {
+    struct message_video_out message = { VIDEO_OUT };
+    message.posx = x;
+    message.posy = y;
+    message.zoom = zoom;
+    write(core->comm_socket, &message, sizeof(message));
+}
+void core_input_focus(struct core_worker *core, int on) {
+    core_message_input_data(core, 0, on ? joy_state : 0);
+    core_message_keyboard_data(core, on ? keyboardstate : 0);
 }
 int main() {
     init_input();
     struct core_worker *c = core_start("atari800");
+    struct core_worker *c_focus = c;
+    struct core_worker *c2 = core_start("amiga");
+    core_message_video_out(c, -180, 0, 0x100);
+    core_message_video_out(c2, 180, 0, 0x100);
     core_message(c, 42);
     for (;;) {
         int r = poll_input();
         if (r) {
-            core_message_input_data(c);
-            core_message_keyboard_data(c);
+            if (r&32) {
+                printf("focus change\n");
+                c_focus = c_focus == c ? c2 : c;
+                core_input_focus(c, c_focus == c);
+                core_input_focus(c2, c_focus == c2);
+//                core_message_video_out(c, c_focus ? 0 : -180, 0, c_focus ? 0x200 : 0x100);
+            }
+            if (r&1 && c_focus) core_message_input_data(c_focus, 0, joy_state);
+            if (r&16 && c_focus) core_message_keyboard_data(c_focus, keyboardstate);
         }
         usleep(10000);
     }
