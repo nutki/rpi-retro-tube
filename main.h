@@ -1,6 +1,7 @@
 #ifndef MAIN_H
 #define MAIN_H
 #include <stdint.h>
+#include "libretro.h"
 enum rt_controls {
     JOYPAD_BUTTONS = 0,
     JOYPAD_LEFT_X = 1,

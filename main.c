@@ -606,6 +606,7 @@ int16_t retro_input_state(unsigned int port, unsigned int device, unsigned int i
 }
 struct retro_core {
     void *handle;
+    struct retro_system_info rsi;
     void (*retro_set_environment)(retro_environment_t);
     void (*retro_set_video_refresh)(retro_video_refresh_t);
     void (*retro_set_audio_sample)(retro_audio_sample_t);
@@ -667,6 +668,9 @@ int load_core(struct retro_core *core, const char *lib_file_path) {
     LOAD_SYM(retro_get_region)
     LOAD_SYM(retro_get_memory_data)
     LOAD_SYM(retro_get_memory_size)
+    struct retro_system_info *rsi = &core->rsi;
+    core->retro_get_system_info(rsi);
+    rt_log("%s %s %s fullpath=%d\n", rsi->library_name, rsi->library_version, rsi->valid_extensions, rsi->need_fullpath);
     return 0;
 }
         char state[1024*1024*20];
@@ -710,16 +714,18 @@ void load_state_1(const char *name) {
     if (fd < 0) return;
     rt_log("state loading start 1\n");
     read(fd, &game_state.header, sizeof(struct state_header));
-    //read(fd, game_state.screen, game_state.header.screen_data_size);
-    read(fd, state_tmp, game_state.header.screen_data_size);
-    LZ4_decompress_safe(state_tmp, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
+    if (0) {
+        read(fd, state_tmp, game_state.header.screen_data_size);
+        LZ4_decompress_safe(state_tmp, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
 
-    rsavi.geometry.aspect_ratio = game_state.header.aspect;
-    new_mode = game_state.header.fmt;
-    rt_log("state loading start 2\n");
-    dispmanx_show(game_state.screen, game_state.header.w, game_state.header.h, game_state.header.pitch);
+        rsavi.geometry.aspect_ratio = game_state.header.aspect;
+        new_mode = game_state.header.fmt;
+        rt_log("state loading start 2\n");
+        dispmanx_show(game_state.screen, game_state.header.w, game_state.header.h, game_state.header.pitch);
+    } else {
+        lseek(fd, game_state.header.screen_data_size, SEEK_CUR);
+    }
     rt_log("state loading start 3\n");
-    //read(fd, game_state.state, game_state.header.state_data_size);
     read(fd, state_tmp, game_state.header.state_data_size);
     int dsize2 = LZ4_decompress_safe(state_tmp, game_state.state, game_state.header.state_data_size, sizeof(game_state.state));
     game_state.header.state_data_size = dsize2;
@@ -729,6 +735,37 @@ void load_state_2() {
     if (!game_state.header.state_data_size) return;
     core.retro_unserialize(game_state.state, game_state.header.state_data_size);
     rt_log("state loaded 2 (size = %d)\n", game_state.header.state_data_size);
+}
+int load_game(const char *path) {
+    struct retro_game_info game;
+    bool result;
+    if (path) {
+        game.path = path;
+        game.meta = 0;
+        game.data = 0;
+        game.size = 0;
+        if (!core.rsi.need_fullpath) {
+            FILE * f = fopen (path, "rb");
+            game.size = fread (game_data, 1, sizeof(game_data), f);
+            game.data = game_data;
+            fclose(f);
+            rt_log("game_loaded size = %d\n", game.size);
+        }
+        result = core.retro_load_game(&game);
+    } else {
+        result = core.retro_load_game(NULL);
+    }
+    core.retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+    core.retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
+    if (!result) {
+        rt_log("game load failed\n");
+        return -1;
+    }
+    rt_log("game loaded\n");
+    core.retro_get_system_av_info(&rsavi);
+    rt_log("%d x %d, fps %lf, aspect %f audio fq %lf\n", rsavi.geometry.base_width, rsavi.geometry.base_height, rsavi.timing.fps, rsavi.geometry.aspect_ratio, rsavi.timing.sample_rate);
+    alsa_init(rsavi.timing.sample_rate);
+    return 0;
 }
 int comm_socket = -1;
 void setnonblocking(int sock) {
@@ -787,7 +824,6 @@ int main(int argc, char** argv) {
 //    rt_log("INPUT STARTED\n");
     dispmanx_init();
 
-    struct retro_system_info rsi;
     if (argc < 2) {
         return 0;
     }
@@ -863,16 +899,9 @@ int main(int argc, char** argv) {
     // more: n64? lynx atarist g&w wanderswan (color) pokemonmini dosbox
     // save states: mame (run for one frame, 3 for audio), zx (run for one frame), atari800 (no saves supported), plus4 audio
     rt_log("STARTED\n");
-    char savename[100], savename2[100];
-    sprintf(savename, "./state_%s", argv[1]);
-    sprintf(savename2, "./state_v2_%s", argv[1]);
-    load_state_1(savename2);
-    rt_log("STATE PRELOADED\n");
 
     int res = load_core(&core, cname);
     rt_log("CORE LOADED %d\n", res);
-    core.retro_get_system_info(&rsi);
-    rt_log("%s %s %s fullpath=%d\n", rsi.library_name, rsi.library_version, rsi.valid_extensions, rsi.need_fullpath);
 
     core.retro_set_environment(retro_environment);
     core.retro_set_audio_sample(retro_audio_sample);
@@ -883,55 +912,14 @@ int main(int argc, char** argv) {
     rt_log("callbacks initialized\n");
     core.retro_init();
     rt_log("core initialized\n");
-    struct retro_game_info game;
-    bool result;
-    if (path) {
-        game.path = path;
-        game.meta = 0;
-        game.data = 0;
-        game.size = 0;
-        if (!rsi.need_fullpath) {
-            FILE * f = fopen (path, "rb");
-            game.size = fread (game_data, 1, sizeof(game_data), f);
-            game.data = game_data;
-            fclose(f);
-            rt_log("game_loaded size = %d\n", game.size);
-        }
-        result = core.retro_load_game(&game);
-    } else {
-        result = core.retro_load_game(NULL);
-    }
-    core.retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
-    core.retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
-    if (!result) {
-        rt_log("game load failed\n");
-        return -1;
-    }
-    rt_log("game loaded\n");
-    core.retro_get_system_av_info(&rsavi);
-    rt_log("%d x %d, fps %lf, aspect %f audio fq %lf\n", rsavi.geometry.base_width, rsavi.geometry.base_height, rsavi.timing.fps, rsavi.geometry.aspect_ratio, rsavi.timing.sample_rate);
-    alsa_init(rsavi.timing.sample_rate);
-    // for(int i = 0; i < 0; i++) {
-    //     int64_t s = timestamp();
-    //     if(poll_input()) break;
-    //     core.retro_run();
-    //     int64_t d = timestamp() - s;
-    //     int64_t t = (int64_t)(1000000 / rsavi.timing.fps) - d;
-    //     if (t > 0) usleep(t);
-    // }
-    rt_log("save size = %d\n", core.retro_serialize_size());
-    if (1) load_state_2();
-    if (0) {
-        FILE * f = fopen (savename, "rb");
-        if (f) {
-        rt_log("HA: %p %p\n", f, state);
-        int state_size = fread (state, 1, sizeof(state), f);
-        fclose(f);
-        rt_log("state_loaded size = %d\n", state_size);
-        core.retro_unserialize(state, state_size);
-        rt_log("state deserialized\n");
-        }
-    }
+
+    if (load_game(path) < 0) return -1;
+
+    char savename2[100];
+    sprintf(savename2, "./state_v2_%s", argv[1]);
+    load_state_1(savename2);
+    load_state_2();
+
     for(int i = 0; ; i++) {
         read_comm();
         int64_t s = timestamp();
@@ -941,32 +929,11 @@ int main(int argc, char** argv) {
         if (frame_time_ms > d) usleep(frame_time_ms - d);
     }
     rt_log("core run\n");
-    if (0) {
-        int state_size = core.retro_serialize_size();
-        int res = core.retro_serialize(state, state_size);
-        rt_log("state serialized %d %d\n", res, state_size);
-        if (res) {
-            FILE * f = fopen (savename, "wb");
-            int state_size_written = fwrite (state, 1, state_size, f);
-            fclose(f);
-            rt_log("state_write size = %d/%d\n", state_size, state_size_written);
-        }
-    }
-    if (1) save_state(savename2);
-    // load_state_1(savename2);
-    // load_state_2();
-    // for(int i = 0; ; i++) {
-    //     int64_t s = timestamp();
-    //     if(poll_input()) break;
-    //     core.retro_run();
-    //     int64_t d = timestamp() - s;
-    //     int64_t t = (int64_t)(1000000 / rsavi.timing.fps) - d;
-    //     if (t > 0) usleep(t);
-    // }
+
+    save_state(savename2);
+
     core.retro_unload_game();
     rt_log("game unloaded\n");
-//    core.retro_load_game(NULL);
-//    rt_log("game loaded\n");
     core.retro_deinit();
     rt_log("core deinitialized\n");
     dlclose(core.handle);
