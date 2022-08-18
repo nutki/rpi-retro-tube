@@ -67,15 +67,20 @@ void core_input_focus(struct core_worker *core, int on) {
     core_message_keyboard_data(core, on ? keyboardstate : 0);
 }
 int main() {
-    init_input();
+    extern void *input_handler_init(void);
+    extern uint32_t poll_devices(void);
+    extern int16_t *get_gamepad_state(int port);
+    extern uint8_t *get_keyboard_state(void);
+    input_handler_init();
+//    init_input();
     struct core_worker *c = core_start("atari800");
     struct core_worker *c_focus = c;
-    struct core_worker *c2 = core_start("amiga");
+    struct core_worker *c2 = core_start("cplus4");
     core_message_video_out(c, -180, 0, 0x100);
     core_message_video_out(c2, 180, 0, 0x100);
     core_message(c, 42);
     for (;;) {
-        int r = poll_input();
+        int r = poll_devices();
         if (r) {
             if (r&32) {
                 printf("focus change\n");
@@ -84,8 +89,11 @@ int main() {
                 core_input_focus(c2, c_focus == c2);
 //                core_message_video_out(c, c_focus ? 0 : -180, 0, c_focus ? 0x200 : 0x100);
             }
-            if (r&1 && c_focus) core_message_input_data(c_focus, 0, joy_state);
-            if (r&16 && c_focus) core_message_keyboard_data(c_focus, keyboardstate);
+            if (r&1 && c_focus) core_message_input_data(c_focus, 0, get_gamepad_state(0));
+            if (r&2 && c_focus) core_message_input_data(c_focus, 1, get_gamepad_state(1));
+            if (r&4 && c_focus) core_message_input_data(c_focus, 2, get_gamepad_state(2));
+            if (r&8 && c_focus) core_message_input_data(c_focus, 3, get_gamepad_state(3));
+            if (r&16 && c_focus) core_message_keyboard_data(c_focus, get_keyboard_state());
         }
         usleep(10000);
     }

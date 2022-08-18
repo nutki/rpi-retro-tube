@@ -9,7 +9,7 @@ int keymap[KEY_MAX] = {
     [KEY_BACKSPACE]=RETROK_BACKSPACE,
     [KEY_TAB]=RETROK_TAB,
     [KEY_CLEAR]=RETROK_CLEAR,
-    //[KEY_UNKNOWN]=RETROK_RETURN,
+    [KEY_ENTER]=RETROK_RETURN,
     [KEY_PAUSE]=RETROK_PAUSE,
     [KEY_ESC]=RETROK_ESCAPE,
     [KEY_SPACE]=RETROK_SPACE,
@@ -156,11 +156,10 @@ int keymap[KEY_MAX] = {
 
 int jsfd = -1, kbdfd = -1;
 void init_input() {
-    jsfd = open("/dev/input/by-path/platform-3f980000.usb-usb-0:1.3:1.0-event-joystick", O_RDONLY|O_NONBLOCK);
+    jsfd = open("/dev/input/by-path/platform-3f980000.usb-usb-0:1.3:1.2-event-joystick", O_RDONLY|O_NONBLOCK);
     kbdfd = open("/dev/input/event1", O_RDONLY|O_NONBLOCK);
     ioctl(kbdfd, EVIOCGRAB, 1);
-//    rt_log("event: %d\n", kbdfd);
-    keymap[KEY_ENTER] = RETROK_RETURN;
+    //keymap[KEY_ENTER] = RETROK_RETURN;
 }
 
 uint8_t keyboardstate[(RETROK_LAST + 7) >> 3];
@@ -191,11 +190,11 @@ int poll_input() {
             if (ev.code == ABS_RX) joy_state[3] = ev.value;
             if (ev.code == ABS_RY) joy_state[4] = ev.value;
         } else if (ev.type == EV_KEY) {
-            if (ev.code == BTN_SOUTH) setbtn(RETRO_DEVICE_ID_JOYPAD_B, ev.value);
+            if (ev.code == BTN_SOUTH) setbtn(RETRO_DEVICE_ID_JOYPAD_A, ev.value);
             if (ev.code == BTN_WEST) setbtn(RETRO_DEVICE_ID_JOYPAD_Y, ev.value);
             if (ev.code == BTN_SELECT) setbtn(RETRO_DEVICE_ID_JOYPAD_SELECT, ev.value);
             if (ev.code == BTN_START) setbtn(RETRO_DEVICE_ID_JOYPAD_START, ev.value);
-            if (ev.code == BTN_EAST) setbtn(RETRO_DEVICE_ID_JOYPAD_A, ev.value);
+            if (ev.code == BTN_EAST) setbtn(RETRO_DEVICE_ID_JOYPAD_B, ev.value);
             if (ev.code == BTN_NORTH) setbtn(RETRO_DEVICE_ID_JOYPAD_X, ev.value);
             if (ev.code == BTN_TL) setbtn(RETRO_DEVICE_ID_JOYPAD_L, ev.value);
             if (ev.code == BTN_TR) setbtn(RETRO_DEVICE_ID_JOYPAD_R, ev.value);
