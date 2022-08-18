@@ -86,7 +86,8 @@ void alsa_write(const int16_t *buffer, int len) {
 
 retro_keyboard_event_t retro_keyboard_event = 0;
 uint8_t keyboardstate[RETROK_LAST];
-int btn_state = 0;
+#define MAX_PORTS 4
+int16_t gamepad_state[MAX_PORTS][CONTROLS_MAX];
 
 
 
@@ -599,9 +600,14 @@ int16_t retro_input_state(unsigned int port, unsigned int device, unsigned int i
     if (device == RETRO_DEVICE_KEYBOARD) {
         return (keyboardstate[id >> 3] >> (id & 7)) & 1;
     }
-    if (port == 0) {
-        if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return btn_state;
-        return btn_state & (1 << id) ? 1 : 0;
+    if (port < MAX_PORTS) {
+        int16_t *port_state = gamepad_state[port];
+        if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return port_state[JOYPAD_BUTTONS];
+        if (id == RETRO_DEVICE_ID_ANALOG_X && index == RETRO_DEVICE_INDEX_ANALOG_LEFT) return port_state[JOYPAD_LEFT_X];
+        if (id == RETRO_DEVICE_ID_ANALOG_Y && index == RETRO_DEVICE_INDEX_ANALOG_LEFT) return port_state[JOYPAD_LEFT_Y];
+        if (id == RETRO_DEVICE_ID_ANALOG_X && index == RETRO_DEVICE_INDEX_ANALOG_RIGHT) return port_state[JOYPAD_RIGHT_X];
+        if (id == RETRO_DEVICE_ID_ANALOG_Y && index == RETRO_DEVICE_INDEX_ANALOG_RIGHT) return port_state[JOYPAD_RIGHT_Y];
+        return port_state[JOYPAD_BUTTONS] & (1 << id) ? 1 : 0;
     }
     return 0;
 }
@@ -756,7 +762,7 @@ int load_game(const char *path) {
     } else {
         result = core.retro_load_game(NULL);
     }
-    core.retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+    core.retro_set_controller_port_device(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 0));
     core.retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
     if (!result) {
         rt_log("game load failed\n");
@@ -802,7 +808,7 @@ void read_comm() {
         } else if (msg_type == INPUT_DATA) {
             struct message_input_data *k = (void*)buf;
 //            rt_log("BTN %04X\n", k->data[JOYPAD_BUTTONS]);
-            btn_state = k->data[JOYPAD_BUTTONS];
+            if (k->port < MAX_PORTS) memcpy(gamepad_state[k->port], k->data, sizeof(k->data));
         } else if (msg_type == VIDEO_OUT) {
             struct message_video_out *k = (void*)buf;
             needs_pos_update = current_zoom != k->zoom || current_dx != k->posx || current_dy != k->posy;
@@ -878,7 +884,7 @@ int main(int argc, char** argv) {
         path = "./mrrobot.atr";
     } else if(!strcmp(argv[1], "atari800")) {
         cname = "/home/pi/GIT/libretro-atari800lib/libatari800_libretro.so";
-        path = "./mrrobot.atr";
+        path = "./Arkanoid.atr";
     } else if(!strcmp(argv[1], "atari2600")) {
         cname = "/opt/retropie/libretrocores/lr-stella2014/stella2014_libretro.so"; // ok, aspect unknown
         path = "/home/pi/RetroPie/roms/atari2600/Rive Raid.bin";
