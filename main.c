@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <linux/input.h>
+#include <sys/prctl.h>
 #include "lz4.h"
 #include "main.h"
 
@@ -819,6 +820,9 @@ int main(int argc, char** argv) {
     const char *env_socket = getenv("S");
     if (env_socket) comm_socket = atoi(getenv("S"));
     gettimeofday(&logstart, NULL);
+    char prname[16] = {0};
+    snprintf(prname, 16, "rt: %s", argv[1]);
+    prctl(PR_SET_NAME, (unsigned long)prname);
     rt_log("COMM SOCKET %d\n", comm_socket);
 //    init_input();
 //    rt_log("INPUT STARTED\n");
