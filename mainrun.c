@@ -72,7 +72,6 @@ int main() {
     extern int16_t *get_gamepad_state(int port);
     extern uint8_t *get_keyboard_state(void);
     input_handler_init();
-//    init_input();
     struct core_worker *c = core_start("atari800");
     struct core_worker *c_focus = c;
     struct core_worker *c2 = core_start("cplus4");

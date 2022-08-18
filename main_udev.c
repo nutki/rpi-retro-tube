@@ -161,7 +161,7 @@ static void check_device(struct udev_device *dev) {
   if (!devnode || num_devices == MAX_DEVICES)
     return;
   int is_gamepad = 0, is_keyboard = 0, is_mouse = 0;
-  const char *serial_id = udev_device_get_property_value(dev, "ID_SERIAL");
+  //const char *serial_id = udev_device_get_property_value(dev, "ID_SERIAL");
   const char *port_id = udev_device_get_property_value(dev, "ID_PATH");
   const char *is_gamepad_str = udev_device_get_property_value(dev, "ID_INPUT_JOYSTICK");
   const char *is_keyboard_str = udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD");
@@ -209,7 +209,7 @@ static void check_device(struct udev_device *dev) {
       bluetooth_mac = udev_device_get_property_value(parent, "UNIQ");
     }
   }
-  printf("%04x:%04x:%s/%s/%s/%s\n", inputid.vendor, inputid.product, name, port_id, serial_id, bluetooth_mac);
+  printf("%04x:%04x:%s/%s/%s\n", inputid.vendor, inputid.product, name, port_id, bluetooth_mac);
   d->fd = fd;
   d->port = 0;
   if (is_gamepad)
