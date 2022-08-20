@@ -66,11 +66,30 @@ void core_input_focus(struct core_worker *core, int on) {
     core_message_input_data(core, 0, on ? joy_state : 0);
     core_message_keyboard_data(core, on ? keyboardstate : 0);
 }
+extern void *input_handler_init(void);
+extern uint32_t poll_devices(void);
+extern int16_t *get_gamepad_state(int port);
+extern uint8_t *get_keyboard_state(void);
+static int ui_focus = 0;
+int get_ui_controls(int r) {
+    static int last_home_state = 0;
+    static int last_controls_state = 0;
+    static int autorepeat_clock = 0;
+    int home_state = r & 32 ? 1 : 0;
+    int controls_state = ui_focus ? get_gamepad_state(-1)[0] : 0;
+    if (home_state && !last_home_state) {
+        ui_focus = !ui_focus;
+        last_controls_state = 0;
+        controls_state = 0;
+    }
+    autorepeat_clock = controls_state && controls_state == last_controls_state ? autorepeat_clock + 1 : 0;
+    int pressed_buttons = controls_state & ~last_controls_state;
+    if (autorepeat_clock >= 30 && (autorepeat_clock - 30) % 6 == 0) pressed_buttons = controls_state;
+    last_controls_state = controls_state;
+    last_home_state = home_state;
+    return pressed_buttons;
+}
 int main() {
-    extern void *input_handler_init(void);
-    extern uint32_t poll_devices(void);
-    extern int16_t *get_gamepad_state(int port);
-    extern uint8_t *get_keyboard_state(void);
     input_handler_init();
     struct core_worker *c = core_start("atari800");
     struct core_worker *c_focus = c;
@@ -80,9 +99,10 @@ int main() {
     core_message(c, 42);
     for (;;) {
         int r = poll_devices();
+        int ui_controls = get_ui_controls(r);
+        if (ui_controls) printf("%04x\n", ui_controls);
         if (r) {
             if (r&32) {
-                printf("focus change\n");
                 c_focus = c_focus == c ? c2 : c;
                 core_input_focus(c, c_focus == c);
                 core_input_focus(c2, c_focus == c2);
@@ -94,7 +114,7 @@ int main() {
             if (r&8 && c_focus) core_message_input_data(c_focus, 3, get_gamepad_state(3));
             if (r&16 && c_focus) core_message_keyboard_data(c_focus, get_keyboard_state());
         }
-        usleep(10000);
+        usleep(1000000/60);
     }
     return 0;
 }
