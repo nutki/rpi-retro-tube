@@ -6,6 +6,7 @@
 
 #include "maininput.h"
 #include "main.h"
+#include "mainlog.h"
 struct core_worker {
     int comm_socket;
     int worker_pid;
@@ -70,44 +71,75 @@ extern void *input_handler_init(void);
 extern uint32_t poll_devices(void);
 extern int16_t *get_gamepad_state(int port);
 extern uint8_t *get_keyboard_state(void);
-static int ui_focus = 0;
+static int ui_focus = 1;
+#define UI_FOCUS_CHANGE (1<<16)
 int get_ui_controls(int r) {
     static int last_home_state = 0;
     static int last_controls_state = 0;
     static int autorepeat_clock = 0;
     int home_state = r & 32 ? 1 : 0;
     int controls_state = ui_focus ? get_gamepad_state(-1)[0] : 0;
+    int ui_focus_change = 0;
     if (home_state && !last_home_state) {
         ui_focus = !ui_focus;
         last_controls_state = 0;
         controls_state = 0;
+        ui_focus_change = UI_FOCUS_CHANGE;
     }
     autorepeat_clock = controls_state && controls_state == last_controls_state ? autorepeat_clock + 1 : 0;
     int pressed_buttons = controls_state & ~last_controls_state;
     if (autorepeat_clock >= 30 && (autorepeat_clock - 30) % 6 == 0) pressed_buttons = controls_state;
     last_controls_state = controls_state;
     last_home_state = home_state;
-    return pressed_buttons;
+    return pressed_buttons | ui_focus_change;
 }
+#define MAX_WORKERS 3
+struct core_worker *workers[MAX_WORKERS];
 int main() {
+    rt_log_init(' ');
     input_handler_init();
-    struct core_worker *c = core_start("atari800");
-    struct core_worker *c_focus = c;
-    struct core_worker *c2 = core_start("cplus4");
-    core_message_video_out(c, -180, 0, 0x100);
-    core_message_video_out(c2, 180, 0, 0x100);
-    core_message(c, 42);
+    rt_log("udev input initialized\n");
+    int current_worker_idx = 0;
+    workers[0] = core_start("psx");
+    workers[1] = core_start("atari800");
+    workers[2] = core_start("cplus4");
+    rt_log("cores spawned\n");
+    for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
+        core_message_video_out(workers[i], -180 + i * 250, 0, i ? 0x80 : 0xC0);
+    }
+    core_message(workers[0], START_GAME);
     for (;;) {
         int r = poll_devices();
         int ui_controls = get_ui_controls(r);
-        if (ui_controls) printf("%04x\n", ui_controls);
-        if (r) {
-            if (r&32) {
-                c_focus = c_focus == c ? c2 : c;
-                core_input_focus(c, c_focus == c);
-                core_input_focus(c2, c_focus == c2);
-//                core_message_video_out(c, c_focus ? 0 : -180, 0, c_focus ? 0x200 : 0x100);
+//        if (ui_controls) printf("%04x\n", ui_controls);
+        if (ui_controls & ((1 << RETRO_DEVICE_ID_JOYPAD_LEFT) | (1 << RETRO_DEVICE_ID_JOYPAD_RIGHT))) {
+            current_worker_idx = ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_LEFT) ? current_worker_idx + MAX_WORKERS - 1 : current_worker_idx + 1;
+            current_worker_idx %= MAX_WORKERS;
+            for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
+                core_input_focus(workers[i], i == current_worker_idx);
+                core_message(workers[i], i == current_worker_idx ? START_GAME : PAUSE_GAME);
+                core_message_video_out(workers[i], -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
             }
+        }
+        if (ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_A)) {
+            ui_controls |= UI_FOCUS_CHANGE;
+            ui_focus = 0;
+        }
+        if (ui_controls & UI_FOCUS_CHANGE) {
+            if (!ui_focus) {
+                for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
+                    core_input_focus(workers[i], i == current_worker_idx);
+                    core_message_video_out(workers[i], i == current_worker_idx ? 0 : 800, 0, 0x200);
+                }
+            } else {
+                for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
+                    core_input_focus(workers[i], 0);
+                    core_message_video_out(workers[i], -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
+                }
+            }
+        }
+        if ((r & 31) && !ui_focus) {
+            struct core_worker *c_focus = workers[current_worker_idx];
             if (r&1 && c_focus) core_message_input_data(c_focus, 0, get_gamepad_state(0));
             if (r&2 && c_focus) core_message_input_data(c_focus, 1, get_gamepad_state(1));
             if (r&4 && c_focus) core_message_input_data(c_focus, 2, get_gamepad_state(2));

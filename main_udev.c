@@ -15,13 +15,14 @@
 
 #include "libretro.h"
 #include "main.h"
+#include "mainlog.h"
 
 // Closing evdev descriptors is slow
 // https://gitlab.freedesktop.org/libinput/libinput/-/issues/509
 // https://patchwork.kernel.org/project/linux-input/patch/20201227144302.9419-1-kl@kl.wtf/
 void *async_close_worker(void *fd) {
   close((int)fd);
-  printf("done close %d\n", (int)fd);
+  rt_log("done close %d\n", (int)fd);
   return 0;
 }
 void async_close(int fd) {
@@ -209,7 +210,7 @@ static void check_device(struct udev_device *dev) {
       bluetooth_mac = udev_device_get_property_value(parent, "UNIQ");
     }
   }
-  printf("%04x:%04x:%s/%s/%s\n", inputid.vendor, inputid.product, name, port_id, bluetooth_mac);
+  rt_log("%04x:%04x:%s/%s/%s\n", inputid.vendor, inputid.product, name, port_id, bluetooth_mac);
   d->fd = fd;
   d->port = 0;
   if (is_gamepad)
@@ -345,7 +346,7 @@ uint32_t poll_devices(void) {
       if (input->type == INPUT_DEVICE_GAMEPAD) {
         if (ev.type == EV_KEY) {
           struct button_mapping *m = get_button_mapping(ev.code);
-          printf("EV_KEY %d -> %s = %d\n", ev.code, m ? control_names[m->retro_button] : "undefined", ev.value);
+          rt_log("EV_KEY %d -> %s = %d\n", ev.code, m ? control_names[m->retro_button] : "undefined", ev.value);
           if (m && IS_BUTTON_MAP(m->retro_button)) {
             set_button_value(input->input_state.gamepad_state, m->retro_button, ev.value);
             if (input->port >= 0)
@@ -379,14 +380,14 @@ uint32_t poll_devices(void) {
         }
       }
       if (input->type == INPUT_DEVICE_KEYBOARD && ev.type == EV_KEY && ev.value < 2) {
-        printf("EV_KEY %d %d\n", ev.code, ev.value);
+        rt_log("EV_KEY %d %d\n", ev.code, ev.value);
         set_key_value(input->input_state.keyboard_state, keymap[ev.code], ev.value);
         keyboard_dirty = 1;
       }
     }
     home_state |= input->home_state;
     if (len < 0 && errno != EAGAIN) {
-      printf("%d %d\n", len, errno);
+      rt_log("%d %d\n", len, errno);
       if (errno == ENODEV) {
         async_close(input->fd);
         *input = devices[--num_devices];
@@ -413,6 +414,7 @@ void input_handler_init(void) {
 
   udev_enumerate_add_match_property(enumerate, "ID_INPUT", "1");
   udev_enumerate_add_match_subsystem(enumerate, "input");
+  rt_log("enumarating input devices\n");
   udev_enumerate_scan_devices(enumerate);
   struct udev_list_entry *item, *devs = udev_enumerate_get_list_entry(enumerate);
 

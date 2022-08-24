@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/time.h>
 #include <dlfcn.h>
 #include "libretro.h"
 #include <stdarg.h>
@@ -14,28 +13,8 @@
 #include <sys/prctl.h>
 #include "lz4.h"
 #include "main.h"
+#include "mainlog.h"
 
-struct timeval logstart;
-int64_t timestamp() {
-    struct timeval stop;
-    gettimeofday(&stop, NULL);
-    return (stop.tv_sec - logstart.tv_sec) * 1000000ll + stop.tv_usec - logstart.tv_usec;
-}
-
-
-void rt_log(const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    printf("%06llu ", timestamp());
-    vprintf(fmt, args);
-    va_end(args);
-}
-
-void rt_log_v(const char *fmt, enum retro_log_level level, va_list args) {
-    if (level <= 0) return;
-    printf("%06llu CORE %d: ", timestamp(), level);
-    vprintf(fmt, args);
-}
 void retro_set_led_state(int led, int state) {
     rt_log("LED: %d %d\n", led, state);
 }
@@ -136,14 +115,14 @@ int pixel_format_to_size(enum retro_pixel_format fmt) {
     return 0;
 }
 
-static int current_zoom = 0x200, current_dx, current_dy, needs_pos_update = 0;
+static int current_zoom = 0x200, current_dx, current_dy, needs_pos_update = 1;
 static int apply_zoom(int v) {
     return (v * current_zoom) >> 8;
 }
 
 
 void dispmanx_show(const char *buf, int w, int h, int pitch) {
-    current_screen = buf;
+    if (buf) current_screen = buf;
     if (!rsavi.geometry.aspect_ratio) rsavi.geometry.aspect_ratio = (float)w/h;
     int pitch_w = pitch/pixel_format_to_size(new_mode);
     if (pitch != current_pitch || w != current_w || h != current_h || new_mode != current_mode || needs_pos_update) {
@@ -154,7 +133,7 @@ void dispmanx_show(const char *buf, int w, int h, int pitch) {
     	vc_dispmanx_rect_set(&srcRect, 0, 0, w << 16, h << 16);
             int target_w = (w * screenX * 3 / 4 / screenY) * (rsavi.geometry.aspect_ratio*h/w);
     	    vc_dispmanx_rect_set(&dstRect, (screenX - apply_zoom(target_w))/2 + current_dx, (screenY-apply_zoom(h))/2 + current_dy, apply_zoom(target_w), apply_zoom(h));
-        vc_dispmanx_element_change_source(update, element, new_resource);
+        if (buf) vc_dispmanx_element_change_source(update, element, new_resource);
         vc_dispmanx_element_change_attributes(update, element, ELEMENT_CHANGE_SRC_RECT | ELEMENT_CHANGE_DEST_RECT, 0, 0, &dstRect, &srcRect, 0, 0);
 	    vc_dispmanx_update_submit_sync(update);
         if (resource) vc_dispmanx_resource_delete(resource);
@@ -174,7 +153,7 @@ void dispmanx_show(const char *buf, int w, int h, int pitch) {
 	VC_RECT_T bmpRect;
 //	VC_RECT_T zeroRect;
     vc_dispmanx_rect_set(&bmpRect, 0, 0, pitch_w, h);
-    vc_dispmanx_resource_write_data(resource, pixel_format_to_mode(current_mode), pitch, (void*)buf, &bmpRect);
+    if (buf) vc_dispmanx_resource_write_data(resource, pixel_format_to_mode(current_mode), pitch, (void*)buf, &bmpRect);
  //   vc_dispmanx_rect_set(&zeroRect, 0, 0, screenX, screenY);
  //   vc_dispmanx_element_change_attributes(update, element, ELEMENT_CHANGE_DEST_RECT, 0, 0, &zeroRect, 0, 0, 0);
 //	int result = vc_dispmanx_update_submit_sync(update); // This waits for vsync?
@@ -221,7 +200,7 @@ void dispmanx_init() {
 	// Create a resource and copy bitmap to resource
 	uint32_t vc_image_ptr = 0;
 	resource = vc_dispmanx_resource_create(
-		VC_IMAGE_RGB565, SCREENX, SCREENY, &vc_image_ptr);
+		VC_IMAGE_RGB565, 1, 1, &vc_image_ptr);
 
 	assert(resource != 0);
 
@@ -232,8 +211,8 @@ void dispmanx_init() {
 
 	// Calculate source and destination rect values
 	VC_RECT_T srcRect, dstRect;
-	vc_dispmanx_rect_set(&srcRect, 0, 0, SCREENX << 16, SCREENY << 16);
-	vc_dispmanx_rect_set(&dstRect, screenXoffset, 0, screenX - 2 * screenXoffset, screenY);
+	vc_dispmanx_rect_set(&srcRect, 0, 0, 1 << 16, 1 << 16);
+	vc_dispmanx_rect_set(&dstRect, -1, -1, 1, 1);
 
 	// Add element to vc
 	element = vc_dispmanx_element_add(
@@ -721,7 +700,7 @@ void load_state_1(const char *name) {
     if (fd < 0) return;
     rt_log("state loading start 1\n");
     read(fd, &game_state.header, sizeof(struct state_header));
-    if (0) {
+    if (1) {
         read(fd, state_tmp, game_state.header.screen_data_size);
         LZ4_decompress_safe(state_tmp, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
 
@@ -762,7 +741,8 @@ int load_game(const char *path) {
     } else {
         result = core.retro_load_game(NULL);
     }
-    core.retro_set_controller_port_device(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 0));
+//    core.retro_set_controller_port_device(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 0));
+    core.retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
     core.retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
     if (!result) {
         rt_log("game load failed\n");
@@ -775,6 +755,7 @@ int load_game(const char *path) {
     return 0;
 }
 int comm_socket = -1;
+int play_state = 0;
 void setnonblocking(int sock) {
     int opt;
 
@@ -815,6 +796,10 @@ void read_comm() {
             current_zoom = k->zoom;
             current_dx = k->posx;
             current_dy = k->posy;
+        } else if (msg_type == PAUSE_GAME) {
+            play_state = 0;
+        } else if (msg_type == START_GAME) {
+            play_state = 1;
         } else {
             rt_log("GOT MESSAGE %d\n", msg_type);
         }
@@ -824,8 +809,8 @@ void read_comm() {
 int main(int argc, char** argv) {
     const char *cname = 0, *path = 0;
     const char *env_socket = getenv("S");
+    rt_log_init('C');
     if (env_socket) comm_socket = atoi(getenv("S"));
-    gettimeofday(&logstart, NULL);
     char prname[16] = {0};
     snprintf(prname, 16, "rt: %s", argv[1]);
     prctl(PR_SET_NAME, (unsigned long)prname);
@@ -884,7 +869,8 @@ int main(int argc, char** argv) {
         path = "./mrrobot.atr";
     } else if(!strcmp(argv[1], "atari800")) {
         cname = "/home/pi/GIT/libretro-atari800lib/libatari800_libretro.so";
-        path = "./Arkanoid.atr";
+        path = "./mrrobot.atr";
+//        path = "./Arkanoid.atr";
     } else if(!strcmp(argv[1], "atari2600")) {
         cname = "/opt/retropie/libretrocores/lr-stella2014/stella2014_libretro.so"; // ok, aspect unknown
         path = "/home/pi/RetroPie/roms/atari2600/Rive Raid.bin";
@@ -908,7 +894,12 @@ int main(int argc, char** argv) {
     if (!cname) exit(0);
     // more: n64? lynx atarist g&w wanderswan (color) pokemonmini dosbox
     // save states: mame (run for one frame, 3 for audio), zx (run for one frame), atari800 (no saves supported), plus4 audio
+    read_comm();
     rt_log("STARTED\n");
+    char savename2[100];
+    sprintf(savename2, "./state_v2_%s", argv[1]);
+    load_state_1(savename2);
+    rt_log("save preloaded\n");
 
     int res = load_core(&core, cname);
     rt_log("CORE LOADED %d\n", res);
@@ -925,15 +916,13 @@ int main(int argc, char** argv) {
 
     if (load_game(path) < 0) return -1;
 
-    char savename2[100];
-    sprintf(savename2, "./state_v2_%s", argv[1]);
-    load_state_1(savename2);
     load_state_2();
 
     for(int i = 0; ; i++) {
         read_comm();
         int64_t s = timestamp();
-        core.retro_run();
+        if (play_state) core.retro_run();
+        else dispmanx_show(0, current_w, current_h, current_pitch);
         int64_t frame_time_ms = 1000000 / rsavi.timing.fps;
         int64_t d = timestamp() - s;
         if (frame_time_ms > d) usleep(frame_time_ms - d);
