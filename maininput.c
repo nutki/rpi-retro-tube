@@ -1,5 +1,3 @@
-#include <unistd.h>
-#include <fcntl.h>
 #include <linux/input.h>
 
 #include "libretro.h"
@@ -153,70 +151,4 @@ int keymap[KEY_MAX] = {
     //[KEY_UNKNOWN]=RETROK_OEM_102,
 
 };
-
-int jsfd = -1, kbdfd = -1;
-void init_input() {
-    jsfd = open("/dev/input/by-path/platform-3f980000.usb-usb-0:1.3:1.2-event-joystick", O_RDONLY|O_NONBLOCK);
-    kbdfd = open("/dev/input/event1", O_RDONLY|O_NONBLOCK);
-    ioctl(kbdfd, EVIOCGRAB, 1);
-    //keymap[KEY_ENTER] = RETROK_RETURN;
-}
-
-uint8_t keyboardstate[(RETROK_LAST + 7) >> 3];
-int16_t joy_state[CONTROLS_MAX];
-int mode_state;
-
-void setbtn(int id, int v) {
-    if (v) joy_state[JOYPAD_BUTTONS] |= 1 << id; else joy_state[JOYPAD_BUTTONS] &= ~(1 << id);
-//    rt_log("%04X BTN\n", joy_state[0]);
-}
-void setkey(int id, int v) {
-    if (v) keyboardstate[id >> 3] |= 1 << (id&7); else keyboardstate[id >> 3] &= ~(1 << (id&7));
-}
-int poll_input() {
-    struct input_event ev;
-    int ret = 0;
-    while(read(jsfd, &ev, sizeof(ev)) > 0) {
-//        rt_log("%d %d %d\n", ev.code, ev.type, ev.value);
-        if (ev.type == EV_ABS) {
-            if (ev.code == ABS_HAT0Y) setbtn(RETRO_DEVICE_ID_JOYPAD_UP, ev.value < 0);
-            if (ev.code == ABS_HAT0Y) setbtn(RETRO_DEVICE_ID_JOYPAD_DOWN, ev.value > 0);
-            if (ev.code == ABS_HAT0X) setbtn(RETRO_DEVICE_ID_JOYPAD_LEFT, ev.value < 0);
-            if (ev.code == ABS_HAT0X) setbtn(RETRO_DEVICE_ID_JOYPAD_RIGHT, ev.value > 0);
-            if (ev.code == ABS_Z) setbtn(RETRO_DEVICE_ID_JOYPAD_L2, ev.value > 0);
-            if (ev.code == ABS_RZ) setbtn(RETRO_DEVICE_ID_JOYPAD_R2, ev.value > 0);
-            if (ev.code == ABS_X) joy_state[1] = ev.value;
-            if (ev.code == ABS_Y) joy_state[2] = ev.value;
-            if (ev.code == ABS_RX) joy_state[3] = ev.value;
-            if (ev.code == ABS_RY) joy_state[4] = ev.value;
-        } else if (ev.type == EV_KEY) {
-            if (ev.code == BTN_SOUTH) setbtn(RETRO_DEVICE_ID_JOYPAD_A, ev.value);
-            if (ev.code == BTN_WEST) setbtn(RETRO_DEVICE_ID_JOYPAD_Y, ev.value);
-            if (ev.code == BTN_SELECT) setbtn(RETRO_DEVICE_ID_JOYPAD_SELECT, ev.value);
-            if (ev.code == BTN_START) setbtn(RETRO_DEVICE_ID_JOYPAD_START, ev.value);
-            if (ev.code == BTN_EAST) setbtn(RETRO_DEVICE_ID_JOYPAD_B, ev.value);
-            if (ev.code == BTN_NORTH) setbtn(RETRO_DEVICE_ID_JOYPAD_X, ev.value);
-            if (ev.code == BTN_TL) setbtn(RETRO_DEVICE_ID_JOYPAD_L, ev.value);
-            if (ev.code == BTN_TR) setbtn(RETRO_DEVICE_ID_JOYPAD_R, ev.value);
-            if (ev.code == BTN_THUMBL) setbtn(RETRO_DEVICE_ID_JOYPAD_L3, ev.value);
-            if (ev.code == BTN_THUMBR) setbtn(RETRO_DEVICE_ID_JOYPAD_R3, ev.value);
-            if (ev.code == BTN_MODE) {
-                if (!mode_state && ev.value) ret |= 32;
-                mode_state = ev.value;
-            }
-        }
-        ret |= 1;
-    }
-    while (read(kbdfd, &ev, sizeof(ev)) > 0)
-    {
-        if (ev.type == EV_KEY && ev.value < 2) {
-//            rt_log("%d %d %d\n", ev.code, ev.type, ev.value);
-            setkey(keymap[ev.code], ev.value);
-        }
-        ret |= 16;
-    }
-    
-    return ret;
-}
-
 

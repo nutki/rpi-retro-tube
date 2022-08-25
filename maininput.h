@@ -4,11 +4,9 @@
 #include "libretro.h"
 #include "main.h"
 
-uint8_t keyboardstate[(RETROK_LAST + 7) >> 3];
-int16_t joy_state[CONTROLS_MAX];
-int mode_state;
-
-void init_input();
-int poll_input();
+extern void *input_handler_init(void);
+extern uint32_t poll_devices(void);
+extern int16_t *get_gamepad_state(int port);
+extern uint8_t *get_keyboard_state(void);
 
 #endif

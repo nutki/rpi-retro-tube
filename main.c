@@ -4,6 +4,7 @@
 #include <dlfcn.h>
 #include "libretro.h"
 #include <stdarg.h>
+#include <signal.h>
 #include <bcm_host.h>
 #include <assert.h>
 #include <sys/types.h>
@@ -159,7 +160,6 @@ void dispmanx_show(const char *buf, int w, int h, int pitch) {
 //	int result = vc_dispmanx_update_submit_sync(update); // This waits for vsync?
 //	assert(result == 0);
 }
-
 void dispmanx_init() {
 	int32_t layer = 10;
 	u_int32_t displayNumber = 0;
@@ -541,8 +541,10 @@ bool retro_environment(unsigned int cmd, void *data) {
 //    exit(0);
     return false;
 } 
+int dry_run;
 void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_t pitch) {
     static int frame = 0;
+    if (dry_run) return;
     if (frame < 10 || frame % 100 == 0) rt_log("VID%d: %d x %d pitch %d\n", frame, w, h, pitch);
     frame++;
     if (!data) {
@@ -680,6 +682,10 @@ void save_state(const char *name) {
     game_state.header.fmt = current_mode;
     game_state.header.screen_data_size = current_h * current_pitch;
     game_state.header.state_data_size = core.retro_serialize_size();
+    if (current_screen == game_state.screen) {
+        memcpy(state_tmp, current_screen, game_state.header.screen_data_size);
+        current_screen = state_tmp;
+    }
     int csize = LZ4_compress_default(current_screen, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
     rt_log("compressed state size %d => %d\n", game_state.header.screen_data_size, csize);
     game_state.header.screen_data_size = csize;
@@ -768,6 +774,7 @@ void setnonblocking(int sock) {
         printf("fcntl(F_SETFL) fail.");
     }
 }
+static int done = 0;
 void read_comm() {
     if (comm_socket == -1) return;
     setnonblocking(comm_socket);
@@ -800,6 +807,8 @@ void read_comm() {
             play_state = 0;
         } else if (msg_type == START_GAME) {
             play_state = 1;
+        } else if (msg_type == QUIT_CORE) {
+            done = 1;
         } else {
             rt_log("GOT MESSAGE %d\n", msg_type);
         }
@@ -810,6 +819,7 @@ int main(int argc, char** argv) {
     const char *cname = 0, *path = 0;
     const char *env_socket = getenv("S");
     rt_log_init('C');
+    signal(SIGINT, SIG_IGN);
     if (env_socket) comm_socket = atoi(getenv("S"));
     char prname[16] = {0};
     snprintf(prname, 16, "rt: %s", argv[1]);
@@ -896,8 +906,12 @@ int main(int argc, char** argv) {
     // save states: mame (run for one frame, 3 for audio), zx (run for one frame), atari800 (no saves supported), plus4 audio
     read_comm();
     rt_log("STARTED\n");
-    char savename2[100];
-    sprintf(savename2, "./state_v2_%s", argv[1]);
+    char savename2[1000];
+    if (path) {
+        sprintf(savename2, "%s.save.rtube", path);
+    } else {
+        sprintf(savename2, "./nocontent-%s.save.rtube", argv[1]);
+    }
     load_state_1(savename2);
     rt_log("save preloaded\n");
 
@@ -916,12 +930,24 @@ int main(int argc, char** argv) {
 
     if (load_game(path) < 0) return -1;
 
+    if (game_state.header.state_data_size) {
+        dry_run = 1;
+        core.retro_run();
+        core.retro_run();
+        core.retro_run();
+        core.retro_run();
+        dry_run = 0;
+    }
     load_state_2();
 
-    for(int i = 0; ; i++) {
+    int frames = 0;
+    for(int i = 0; !done; i++) {
         read_comm();
         int64_t s = timestamp();
-        if (play_state) core.retro_run();
+        if (play_state) {
+            core.retro_run();
+            frames++;
+        }
         else dispmanx_show(0, current_w, current_h, current_pitch);
         int64_t frame_time_ms = 1000000 / rsavi.timing.fps;
         int64_t d = timestamp() - s;
@@ -929,7 +955,7 @@ int main(int argc, char** argv) {
     }
     rt_log("core run\n");
 
-    save_state(savename2);
+    if (frames) save_state(savename2);
 
     core.retro_unload_game();
     rt_log("game unloaded\n");

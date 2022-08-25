@@ -25,6 +25,7 @@ enum rt_message_type {
     START_GAME,
     PAUSE_GAME,
     LOAD_STATE,
+    QUIT_CORE,
     SAVE_STATE, // + save state path
     UNLOAD_GAME,
     FF_GAME,

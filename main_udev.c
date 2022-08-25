@@ -291,7 +291,7 @@ void set_key_value(uint8_t *keyboard_state, int id, int v) {
 
 uint8_t *get_keyboard_state() {
   uint8_t *res = 0;
-  for (int p = 0; p < num_devices; p++)
+  for (int p = 0; p < num_devices; p++) {
     if (devices[p].type == INPUT_DEVICE_KEYBOARD) {
       if (!res)
         res = devices[p].input_state.keyboard_state;
@@ -305,12 +305,17 @@ uint8_t *get_keyboard_state() {
         }
       }
     }
+  }
+  if (!res) {
+    memset(keyboardstate, 0, sizeof(keyboardstate));
+    res = keyboardstate;
+  }
   return res;
 }
 
 int16_t *get_gamepad_state(int port) {
   int16_t *res = 0;
-  for (int p = 0; p < num_devices; p++)
+  for (int p = 0; p < num_devices; p++) {
     if (devices[p].type == INPUT_DEVICE_GAMEPAD && (port < 0 || devices[p].port == port)) {
       if (!res)
         res = devices[p].input_state.gamepad_state;
@@ -326,6 +331,11 @@ int16_t *get_gamepad_state(int port) {
         }
       }
     }
+  }
+  if (!res) {
+    memset(joy_state, 0, sizeof(joy_state));
+    res = joy_state;
+  }
   return res;
 }
 

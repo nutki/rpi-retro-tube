@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 
 #include "maininput.h"
 #include "main.h"
@@ -14,7 +15,7 @@ struct core_worker {
 
 
 
-struct core_worker *core_start(char *id) {
+struct core_worker *core_start(char *id, char *content) {
     int s[2];
     if (socketpair(AF_LOCAL, SOCK_DGRAM, 0, s) < 0) {
         perror("socketpair");
@@ -29,7 +30,7 @@ struct core_worker *core_start(char *id) {
         char sockno[20];
         sprintf(sockno, "S=%d", s[1]);
         char * env[] = { sockno, NULL };
-        char * arg[] = { "main", id, NULL };
+        char * arg[] = { "main", id, content, NULL };
         execve("./main", arg, env);
         perror("exec");
         exit(-1);
@@ -64,13 +65,12 @@ void core_message_video_out(struct core_worker *core, int x, int y, int zoom) {
     write(core->comm_socket, &message, sizeof(message));
 }
 void core_input_focus(struct core_worker *core, int on) {
-    core_message_input_data(core, 0, on ? joy_state : 0);
-    core_message_keyboard_data(core, on ? keyboardstate : 0);
+    core_message_input_data(core, 0, on ? get_gamepad_state(0) : 0);
+    core_message_input_data(core, 1, on ? get_gamepad_state(1) : 0);
+    core_message_input_data(core, 2, on ? get_gamepad_state(2) : 0);
+    core_message_input_data(core, 3, on ? get_gamepad_state(3) : 0);
+    core_message_keyboard_data(core, on ? get_keyboard_state() : 0);
 }
-extern void *input_handler_init(void);
-extern uint32_t poll_devices(void);
-extern int16_t *get_gamepad_state(int port);
-extern uint8_t *get_keyboard_state(void);
 static int ui_focus = 1;
 #define UI_FOCUS_CHANGE (1<<16)
 int get_ui_controls(int r) {
@@ -93,22 +93,39 @@ int get_ui_controls(int r) {
     last_home_state = home_state;
     return pressed_buttons | ui_focus_change;
 }
-#define MAX_WORKERS 3
+#define MAX_WORKERS 1
+#define MAX_CONTENT 256
+struct content_list {
+    char *core, *filename;
+} list[MAX_CONTENT] = {
+    { "atari800", 0 },
+    { "psx", 0 },
+    { "c64", "./Into the Eagle's Nest (1987)(Pandora)[cr REM][t +8 REM][Docs].d64" },
+    { "mame", 0 },
+    { "nes", 0 },
+    { "snes", 0 },
+    { "gba", 0 },
+};
 struct core_worker *workers[MAX_WORKERS];
+static int done = 0;
+void term(int signum) {
+    rt_log("term signal\n");
+    done = 1;
+}
 int main() {
     rt_log_init(' ');
+    signal(SIGTERM, term);
+    signal(SIGINT, term);
     input_handler_init();
     rt_log("udev input initialized\n");
     int current_worker_idx = 0;
-    workers[0] = core_start("psx");
-    workers[1] = core_start("atari800");
-    workers[2] = core_start("cplus4");
     rt_log("cores spawned\n");
-    for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
+    for (int i = 0; i < MAX_WORKERS; i++) {
+        workers[i] = core_start(list[i].core, list[i].filename);
         core_message_video_out(workers[i], -180 + i * 250, 0, i ? 0x80 : 0xC0);
     }
     core_message(workers[0], START_GAME);
-    for (;;) {
+    for (;!done;) {
         int r = poll_devices();
         int ui_controls = get_ui_controls(r);
 //        if (ui_controls) printf("%04x\n", ui_controls);
@@ -116,7 +133,6 @@ int main() {
             current_worker_idx = ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_LEFT) ? current_worker_idx + MAX_WORKERS - 1 : current_worker_idx + 1;
             current_worker_idx %= MAX_WORKERS;
             for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
-                core_input_focus(workers[i], i == current_worker_idx);
                 core_message(workers[i], i == current_worker_idx ? START_GAME : PAUSE_GAME);
                 core_message_video_out(workers[i], -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
             }
@@ -147,6 +163,9 @@ int main() {
             if (r&16 && c_focus) core_message_keyboard_data(c_focus, get_keyboard_state());
         }
         usleep(1000000/60);
+    }
+    for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
+        core_message(workers[i], QUIT_CORE);
     }
     return 0;
 }
