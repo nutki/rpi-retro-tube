@@ -5,7 +5,7 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/mman.h>
-
+#include <fcntl.h>
 #include "maininput.h"
 #include "main.h"
 #include "mainlog.h"
@@ -109,21 +109,31 @@ int get_ui_controls(int r) {
     last_home_state = home_state;
     return pressed_buttons | ui_focus_change;
 }
-#define MAX_WORKERS 1
 #define MAX_CONTENT 256
+#define CONTENT_QUEUE_FILE "./.rt.queue"
 struct content_list {
     char *core, *filename;
-} list[MAX_CONTENT] = {
-    { "atari800", 0 },
-    { "psx", 0 },
-    { "c64", "./Into the Eagle's Nest (1987)(Pandora)[cr REM][t +8 REM][Docs].d64" },
-    { "mame", 0 },
-    { "nes", 0 },
-    { "snes", 0 },
-    { "gba", 0 },
-};
-struct core_worker *workers[MAX_WORKERS];
+} list[MAX_CONTENT];
+void load_content_queue() {
+    char line[FILENAME_MAX * 2];
+    int i = 0;
+    FILE *f = fopen(CONTENT_QUEUE_FILE, "r");
+    if (!f) return;
+    while(fgets(line, sizeof(line), f)) {
+        int len = strlen(line);
+        if (line[len - 1] == '\n') line[--len] = 0;
+        if (!len || *line == '#') continue;
+        char *s = strchr(line, ' ');
+        if (s) *s++ = 0;
+        list[i].core = strdup(line);
+        list[i].filename = s ? strdup(s) : 0;
+        printf("<%s> <%s>\n", line, s);
+        i++;
+    }
+}
+struct core_worker *workers[MAX_CONTENT];
 static int done = 0;
+static int num_workers = 0;
 void term(int signum) {
     rt_log("term signal\n");
     done = 1;
@@ -135,20 +145,22 @@ int main() {
     input_handler_init();
     rt_log("udev input initialized\n");
     int current_worker_idx = 0;
-    rt_log("cores spawned\n");
-    for (int i = 0; i < MAX_WORKERS; i++) {
+    load_content_queue();
+    for (int i = 0; i < MAX_CONTENT && list[i].core; i++) {
+        num_workers++;
         workers[i] = core_start(list[i].core, list[i].filename);
         core_message_video_out(workers[i], -180 + i * 250, 0, i ? 0x80 : 0xC0);
     }
+    rt_log("cores spawned\n");
     core_message(workers[0], START_GAME);
     for (;!done;) {
         int r = poll_devices();
         int ui_controls = get_ui_controls(r);
 //        if (ui_controls) printf("%04x\n", ui_controls);
         if (ui_controls & ((1 << RETRO_DEVICE_ID_JOYPAD_LEFT) | (1 << RETRO_DEVICE_ID_JOYPAD_RIGHT))) {
-            current_worker_idx = ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_LEFT) ? current_worker_idx + MAX_WORKERS - 1 : current_worker_idx + 1;
-            current_worker_idx %= MAX_WORKERS;
-            for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
+            current_worker_idx = ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_LEFT) ? current_worker_idx + num_workers - 1 : current_worker_idx + 1;
+            current_worker_idx %= num_workers;
+            for (int i = 0; i < num_workers; i++) if (workers[i]) {
                 core_message(workers[i], i == current_worker_idx ? START_GAME : PAUSE_GAME);
                 core_message_video_out(workers[i], -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
             }
@@ -159,12 +171,12 @@ int main() {
         }
         if (ui_controls & UI_FOCUS_CHANGE) {
             if (!ui_focus) {
-                for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
+                for (int i = 0; i < num_workers; i++) if (workers[i]) {
                     core_input_focus(workers[i], i == current_worker_idx);
                     core_message_video_out(workers[i], i == current_worker_idx ? 0 : 800, 0, 0x200);
                 }
             } else {
-                for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
+                for (int i = 0; i < num_workers; i++) if (workers[i]) {
                     core_input_focus(workers[i], 0);
                     core_message_video_out(workers[i], -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
                 }
@@ -180,7 +192,7 @@ int main() {
         }
         usleep(1000000/60);
     }
-    for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
+    for (int i = 0; i < num_workers; i++) if (workers[i]) {
         core_message(workers[i], QUIT_CORE);
     }
     input_handler_disconnect_bt();
