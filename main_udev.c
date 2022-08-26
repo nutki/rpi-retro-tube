@@ -132,6 +132,7 @@ struct device_entry {
   enum device_type type;
   char short_name[128];
   char full_name[256];
+  char bluetooth_addr[18];
   struct device_mapping mapping;
   uint32_t abs_range[ABS_MAX][2];
   union {
@@ -147,7 +148,20 @@ static struct udev_monitor *udev_monitor;
 static struct device_entry devices[MAX_DEVICES];
 static int num_devices = 0;
 
-static void input_handler_close(void) {
+void input_handler_disconnect_bt(void) {
+  for (int i = 0; i < num_devices; i++) {
+    if (strlen(devices[i].bluetooth_addr)) {
+      if (!fork()) {
+        close(1);
+        close(2);
+        execlp("bluetoothctl", "bluetoothctl", "disconnect", devices[i].bluetooth_addr, NULL);
+        exit(-1);
+      }
+    }
+  }
+}
+
+void input_handler_close(void) {
   if (udev_monitor)
     udev_monitor_unref(udev_monitor);
   udev_monitor = 0;
@@ -162,7 +176,7 @@ static void check_device(struct udev_device *dev) {
   if (!devnode || num_devices == MAX_DEVICES)
     return;
   int is_gamepad = 0, is_keyboard = 0, is_mouse = 0;
-  //const char *serial_id = udev_device_get_property_value(dev, "ID_SERIAL");
+  // const char *serial_id = udev_device_get_property_value(dev, "ID_SERIAL");
   const char *port_id = udev_device_get_property_value(dev, "ID_PATH");
   const char *is_gamepad_str = udev_device_get_property_value(dev, "ID_INPUT_JOYSTICK");
   const char *is_keyboard_str = udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD");
@@ -204,10 +218,14 @@ static void check_device(struct udev_device *dev) {
   struct input_id inputid = {0};
   ioctl(fd, EVIOCGID, &inputid);
   const char *bluetooth_mac = 0;
+  d->bluetooth_addr[0] = 0;
   if (is_bluetooth) {
     struct udev_device *parent = udev_device_get_parent(dev);
     if (parent) {
       bluetooth_mac = udev_device_get_property_value(parent, "UNIQ");
+      if (bluetooth_mac && strlen(bluetooth_mac) == 19) {
+        strncpy(d->bluetooth_addr, bluetooth_mac + 1, 17);
+      }
     }
   }
   rt_log("%04x:%04x:%s/%s/%s\n", inputid.vendor, inputid.product, name, port_id, bluetooth_mac);

@@ -183,5 +183,6 @@ int main() {
     for (int i = 0; i < MAX_WORKERS; i++) if (workers[i]) {
         core_message(workers[i], QUIT_CORE);
     }
+    input_handler_disconnect_bt();
     return 0;
 }
