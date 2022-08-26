@@ -4,13 +4,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/mman.h>
 
 #include "maininput.h"
 #include "main.h"
 #include "mainlog.h"
+
+#define SHARED_MEM_SIZE (4 * 1024 * 1024)
 struct core_worker {
     int comm_socket;
     int worker_pid;
+    char *memory;
 };
 
 
@@ -21,24 +25,36 @@ struct core_worker *core_start(char *id, char *content) {
         perror("socketpair");
         return NULL;
     }
+    int m = memfd_create("mmap", 0);
+    ftruncate(m, SHARED_MEM_SIZE);
+    void *mem = mmap(0, SHARED_MEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, m, 0);
+    if (!mem) {
+        perror("mmap");
+        return NULL;
+    }
     int pid = fork();
     if (pid < 0) {
         perror("fork");
         return NULL;
     }
     if (!pid) {
-        char sockno[20];
+        char sockno[20], memno[20];
         sprintf(sockno, "S=%d", s[1]);
-        char * env[] = { sockno, NULL };
+        sprintf(memno, "M=%d", m);
+        char * env[] = { sockno, memno, NULL };
         char * arg[] = { "main", id, content, NULL };
         execve("./main", arg, env);
         perror("exec");
         exit(-1);
     }
+    close(m);
+    close(s[1]);
     struct core_worker *worker = malloc(sizeof(struct core_worker));
     if (!worker) return NULL;
     worker->comm_socket = s[0];
     worker->worker_pid = pid;
+    worker->memory = mem;
+    strcpy(mem, "TEEEEST!");
     return worker;
 }
 void core_message(struct core_worker *core, int message) {

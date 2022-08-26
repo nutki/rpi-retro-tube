@@ -5,7 +5,6 @@
 #include "libretro.h"
 #include <stdarg.h>
 #include <signal.h>
-#include <bcm_host.h>
 #include <assert.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -15,6 +14,7 @@
 #include "lz4.h"
 #include "main.h"
 #include "mainlog.h"
+#include "maindispmanx.h"
 
 void retro_set_led_state(int led, int state) {
     rt_log("LED: %d %d\n", led, state);
@@ -63,7 +63,8 @@ void alsa_write(const int16_t *buffer, int len) {
         }
 }
 
-
+enum retro_pixel_format pixel_format;
+struct retro_system_av_info rsavi;
 retro_keyboard_event_t retro_keyboard_event = 0;
 uint8_t keyboardstate[RETROK_LAST];
 #define MAX_PORTS 4
@@ -71,178 +72,6 @@ int16_t gamepad_state[MAX_PORTS][CONTROLS_MAX];
 
 
 
-#define ELEMENT_CHANGE_LAYER (1<<0)
-#define ELEMENT_CHANGE_OPACITY (1<<1)
-#define ELEMENT_CHANGE_DEST_RECT (1<<2)
-#define ELEMENT_CHANGE_SRC_RECT (1<<3)
-#define ELEMENT_CHANGE_MASK_RESOURCE (1<<4)
-#define ELEMENT_CHANGE_TRANSFORM (1<<5)
-
-static DISPMANX_DISPLAY_HANDLE_T display;
-static DISPMANX_RESOURCE_HANDLE_T resource;
-static DISPMANX_ELEMENT_HANDLE_T element;
-#define SCREENX 384
-#define SCREENY 288
-static int screenX, screenY, screenXoffset;
-
-int current_w, current_h, current_pitch;
-int current_mode;
-double current_fps;
-float current_aspect;
-enum retro_pixel_format new_mode;
-struct retro_system_av_info rsavi;
-const void *current_screen;
-
-VC_IMAGE_TYPE_T pixel_format_to_mode(enum retro_pixel_format fmt) {
-    switch (fmt) {
-        case RETRO_PIXEL_FORMAT_XRGB8888: return VC_IMAGE_XRGB8888;
-        case RETRO_PIXEL_FORMAT_RGB565: return VC_IMAGE_RGB565;
-        case RETRO_PIXEL_FORMAT_UNKNOWN:
-        case RETRO_PIXEL_FORMAT_0RGB1555: break;
-    }
-    rt_log("pixel format not supported: %d\n", fmt);
-    exit(0);
-    return 0;
-}
-int pixel_format_to_size(enum retro_pixel_format fmt) {
-    switch (fmt) {
-        case RETRO_PIXEL_FORMAT_XRGB8888: return 4;
-        case RETRO_PIXEL_FORMAT_RGB565: return 2;
-        case RETRO_PIXEL_FORMAT_UNKNOWN:
-        case RETRO_PIXEL_FORMAT_0RGB1555: break;
-    }
-    rt_log("pixel format not supported: %d\n", fmt);
-    exit(0);
-    return 0;
-}
-
-static int current_zoom = 0x200, current_dx, current_dy, needs_pos_update = 1;
-static int apply_zoom(int v) {
-    return (v * current_zoom) >> 8;
-}
-
-
-void dispmanx_show(const char *buf, int w, int h, int pitch) {
-    if (buf) current_screen = buf;
-    if (!rsavi.geometry.aspect_ratio) rsavi.geometry.aspect_ratio = (float)w/h;
-    int pitch_w = pitch/pixel_format_to_size(new_mode);
-    if (pitch != current_pitch || w != current_w || h != current_h || new_mode != current_mode || needs_pos_update) {
-    	uint32_t vc_image_ptr = 0;
-        DISPMANX_RESOURCE_HANDLE_T new_resource = vc_dispmanx_resource_create(pixel_format_to_mode(new_mode), pitch_w, h, &vc_image_ptr);
-	    DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
-	    VC_RECT_T srcRect, dstRect;
-    	vc_dispmanx_rect_set(&srcRect, 0, 0, w << 16, h << 16);
-            int target_w = (w * screenX * 3 / 4 / screenY) * (rsavi.geometry.aspect_ratio*h/w);
-    	    vc_dispmanx_rect_set(&dstRect, (screenX - apply_zoom(target_w))/2 + current_dx, (screenY-apply_zoom(h))/2 + current_dy, apply_zoom(target_w), apply_zoom(h));
-        if (buf) vc_dispmanx_element_change_source(update, element, new_resource);
-        vc_dispmanx_element_change_attributes(update, element, ELEMENT_CHANGE_SRC_RECT | ELEMENT_CHANGE_DEST_RECT, 0, 0, &dstRect, &srcRect, 0, 0);
-	    vc_dispmanx_update_submit_sync(update);
-        if (resource) vc_dispmanx_resource_delete(resource);
-	    resource = new_resource;
-        rt_log("Resizing canvas %dx%d => %d(%d)x%d %f pixel aspect = %f\n",current_w, current_h, w, target_w, h, rsavi.geometry.aspect_ratio, rsavi.geometry.aspect_ratio*h/w);
-    }
-    if (w != current_w || h != current_h || current_aspect != rsavi.geometry.aspect_ratio) {
-        // change dst rect
-    }
-    current_aspect = rsavi.geometry.aspect_ratio;
-    current_h = h;
-    current_w = w;
-    current_pitch = pitch;
-    current_mode = new_mode;
-    needs_pos_update = 0;
-//    DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
-	VC_RECT_T bmpRect;
-//	VC_RECT_T zeroRect;
-    vc_dispmanx_rect_set(&bmpRect, 0, 0, pitch_w, h);
-    if (buf) vc_dispmanx_resource_write_data(resource, pixel_format_to_mode(current_mode), pitch, (void*)buf, &bmpRect);
- //   vc_dispmanx_rect_set(&zeroRect, 0, 0, screenX, screenY);
- //   vc_dispmanx_element_change_attributes(update, element, ELEMENT_CHANGE_DEST_RECT, 0, 0, &zeroRect, 0, 0, 0);
-//	int result = vc_dispmanx_update_submit_sync(update); // This waits for vsync?
-//	assert(result == 0);
-}
-void dispmanx_init() {
-	int32_t layer = 10;
-	u_int32_t displayNumber = 0;
-	int result = 0;
-
-	// Init BCM
-	bcm_host_init();
-
-	display = vc_dispmanx_display_open(displayNumber);
-	assert(display != 0);
-  TV_DISPLAY_STATE_T tvstate;
-  vc_tv_get_display_state(&tvstate);
-
-  DISPMANX_MODEINFO_T display_info;
-  int ret = vc_dispmanx_display_get_info(display, &display_info);
-  assert(ret == 0);
-  screenX = display_info.width;
-  screenY = display_info.height;
-  int aspectX = 16;
-  int aspectY = 9;
-  if(tvstate.state & (VC_HDMI_HDMI | VC_HDMI_DVI)) switch (tvstate.display.hdmi.aspect_ratio) {
-    case HDMI_ASPECT_4_3:   aspectX = 4;  aspectY = 3;  break;
-    case HDMI_ASPECT_14_9:  aspectX = 14; aspectY = 9;  break;
-    default:
-    case HDMI_ASPECT_16_9:  aspectX = 16; aspectY = 9;  break;
-    case HDMI_ASPECT_5_4:   aspectX = 5;  aspectY = 4;  break;
-    case HDMI_ASPECT_16_10: aspectX = 16; aspectY = 10; break;
-    case HDMI_ASPECT_15_9:  aspectX = 15; aspectY = 9;  break;
-    case HDMI_ASPECT_64_27: aspectX = 64; aspectY = 27; break;
-  } else switch (tvstate.display.sdtv.display_options.aspect) {
-    default:
-    case SDTV_ASPECT_4_3:  aspectX = 4, aspectY = 3;  break;
-    case SDTV_ASPECT_14_9: aspectX = 14, aspectY = 9; break;
-    case SDTV_ASPECT_16_9: aspectX = 16, aspectY = 9; break;
-  }
-  screenXoffset = (screenX - screenX * aspectY * 4 / 3 / aspectX) / 2;
-
-	// Create a resource and copy bitmap to resource
-	uint32_t vc_image_ptr = 0;
-	resource = vc_dispmanx_resource_create(
-		VC_IMAGE_RGB565, 1, 1, &vc_image_ptr);
-
-	assert(resource != 0);
-
-
-	// Notify vc that an update is takng place
-	DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
-	assert(update != 0);
-
-	// Calculate source and destination rect values
-	VC_RECT_T srcRect, dstRect;
-	vc_dispmanx_rect_set(&srcRect, 0, 0, 1 << 16, 1 << 16);
-	vc_dispmanx_rect_set(&dstRect, -1, -1, 1, 1);
-
-	// Add element to vc
-	element = vc_dispmanx_element_add(
-		update, display, layer, &dstRect, resource, &srcRect,
-		DISPMANX_PROTECTION_NONE, NULL, NULL, DISPMANX_NO_ROTATE);
-
-
-	assert(element != 0);
-  
-
-	// Notify vc that update is complete
-	result = vc_dispmanx_update_submit_sync(update); // This waits for vsync?
-	assert(result == 0);
-    rt_log("DISPMANX INITED\n");
-	//---------------------------------------------------------------------
-}
-void dispmanx_close() {
-        int result;
-	DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
-	if (element) result = vc_dispmanx_element_remove(update, element);
-	result = vc_dispmanx_update_submit_sync(update);
-        if (resource) {
-	result = vc_dispmanx_resource_delete(resource);
-	assert(result == 0);
-        }
-        if (display) {
-	result = vc_dispmanx_display_close(display);
-	assert(result == 0);
-        }
-}
 
 struct core_options {
     char *key;
@@ -438,7 +267,7 @@ bool retro_environment(unsigned int cmd, void *data) {
         }
         case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
             const enum retro_pixel_format *fmt = data;
-            new_mode = *fmt;
+            pixel_format = *fmt;
             rt_log("ENV: RETRO_ENVIRONMENT_SET_PIXEL_FORMAT %d\n", *fmt);
             return true;
         }
@@ -542,6 +371,7 @@ bool retro_environment(unsigned int cmd, void *data) {
     return false;
 } 
 int dry_run;
+struct video_frame last_frame;
 void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_t pitch) {
     static int frame = 0;
     if (dry_run) return;
@@ -550,7 +380,13 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     if (!data) {
         return;
     }
-    dispmanx_show(data, w, h, pitch);
+    last_frame.data = data;
+    last_frame.w = w;
+    last_frame.h = h;
+    last_frame.pitch = pitch;
+    last_frame.aspect = rsavi.geometry.aspect_ratio;
+    last_frame.fmt = pixel_format;
+    dispmanx_show_frame(&last_frame);
 }
 #define MAX_AUDIO_SAMPLES 1000
 int16_t audiobuf[MAX_AUDIO_SAMPLES * 2];
@@ -675,13 +511,14 @@ struct game_state {
 } game_state;
 char state_tmp[1024*1024*10];
 void save_state(const char *name) {
-    game_state.header.aspect = current_aspect;
-    game_state.header.w = current_w;
-    game_state.header.h = current_h;
-    game_state.header.pitch = current_pitch;
-    game_state.header.fmt = current_mode;
-    game_state.header.screen_data_size = current_h * current_pitch;
+    game_state.header.aspect = last_frame.aspect;
+    game_state.header.w = last_frame.w;
+    game_state.header.h = last_frame.h;
+    game_state.header.pitch = last_frame.pitch;
+    game_state.header.fmt = last_frame.fmt;
+    game_state.header.screen_data_size = last_frame.h * last_frame.pitch;
     game_state.header.state_data_size = core.retro_serialize_size();
+    void *current_screen = last_frame.data;
     if (current_screen == game_state.screen) {
         memcpy(state_tmp, current_screen, game_state.header.screen_data_size);
         current_screen = state_tmp;
@@ -710,10 +547,14 @@ void load_state_1(const char *name) {
         read(fd, state_tmp, game_state.header.screen_data_size);
         LZ4_decompress_safe(state_tmp, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
 
-        rsavi.geometry.aspect_ratio = game_state.header.aspect;
-        new_mode = game_state.header.fmt;
         rt_log("state loading start 2\n");
-        dispmanx_show(game_state.screen, game_state.header.w, game_state.header.h, game_state.header.pitch);
+        last_frame.data = game_state.screen;
+        last_frame.w = game_state.header.w;
+        last_frame.h = game_state.header.h;
+        last_frame.pitch = game_state.header.pitch;
+        last_frame.aspect = game_state.header.aspect;
+        last_frame.fmt = game_state.header.fmt;
+        dispmanx_show_frame(&last_frame);
     } else {
         lseek(fd, game_state.header.screen_data_size, SEEK_CUR);
     }
@@ -799,10 +640,7 @@ void read_comm() {
             if (k->port < MAX_PORTS) memcpy(gamepad_state[k->port], k->data, sizeof(k->data));
         } else if (msg_type == VIDEO_OUT) {
             struct message_video_out *k = (void*)buf;
-            needs_pos_update = current_zoom != k->zoom || current_dx != k->posx || current_dy != k->posy;
-            current_zoom = k->zoom;
-            current_dx = k->posx;
-            current_dy = k->posy;
+            dispmanx_set_pos(k->posx, k->posy, k->zoom);
         } else if (msg_type == PAUSE_GAME) {
             play_state = 0;
         } else if (msg_type == START_GAME) {
@@ -814,13 +652,23 @@ void read_comm() {
         }
     };
 }
+#include <sys/mman.h>
+#define SHARED_MEM_SIZE (4 * 1024 * 1024)
+void *shared_mem;
 #pragma GCC optimize ("O0")
 int main(int argc, char** argv) {
     const char *cname = 0, *path = 0;
     const char *env_socket = getenv("S");
+    const char *env_mmapfd = getenv("M");
     rt_log_init('C');
     signal(SIGINT, SIG_IGN);
     if (env_socket) comm_socket = atoi(getenv("S"));
+    if (env_mmapfd) {
+        int mem_fd = atoi(env_mmapfd);
+        shared_mem = mmap(0, SHARED_MEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, mem_fd, 0);
+        if (!shared_mem) return 0;
+        rt_log("shared mem says: %s\n", shared_mem);
+    }
     char prname[16] = {0};
     snprintf(prname, 16, "rt: %s", argv[1]);
     prctl(PR_SET_NAME, (unsigned long)prname);
@@ -948,7 +796,7 @@ int main(int argc, char** argv) {
             core.retro_run();
             frames++;
         }
-        else dispmanx_show(0, current_w, current_h, current_pitch);
+        else dispmanx_show_last();
         int64_t frame_time_ms = 1000000 / rsavi.timing.fps;
         int64_t d = timestamp() - s;
         if (frame_time_ms > d) usleep(frame_time_ms - d);
