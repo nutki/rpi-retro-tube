@@ -372,6 +372,7 @@ bool retro_environment(unsigned int cmd, void *data) {
 } 
 int dry_run;
 struct video_frame last_frame;
+uint8_t *shared_mem;
 void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_t pitch) {
     static int frame = 0;
     if (dry_run) return;
@@ -386,7 +387,8 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     last_frame.pitch = pitch;
     last_frame.aspect = rsavi.geometry.aspect_ratio;
     last_frame.fmt = pixel_format;
-    dispmanx_show_frame(&last_frame);
+    memcpy(shared_mem + 64, data, h * pitch);
+    *(struct video_frame *)shared_mem = last_frame;
 }
 #define MAX_AUDIO_SAMPLES 1000
 int16_t audiobuf[MAX_AUDIO_SAMPLES * 2];
@@ -518,7 +520,7 @@ void save_state(const char *name) {
     game_state.header.fmt = last_frame.fmt;
     game_state.header.screen_data_size = last_frame.h * last_frame.pitch;
     game_state.header.state_data_size = core.retro_serialize_size();
-    void *current_screen = last_frame.data;
+    const void *current_screen = last_frame.data;
     if (current_screen == game_state.screen) {
         memcpy(state_tmp, current_screen, game_state.header.screen_data_size);
         current_screen = state_tmp;
@@ -554,7 +556,8 @@ void load_state_1(const char *name) {
         last_frame.pitch = game_state.header.pitch;
         last_frame.aspect = game_state.header.aspect;
         last_frame.fmt = game_state.header.fmt;
-        dispmanx_show_frame(&last_frame);
+        memcpy(shared_mem + 64, last_frame.data, last_frame.h * last_frame.pitch);
+        *(struct video_frame *)shared_mem = last_frame;
     } else {
         lseek(fd, game_state.header.screen_data_size, SEEK_CUR);
     }
@@ -638,9 +641,6 @@ void read_comm() {
             struct message_input_data *k = (void*)buf;
 //            rt_log("BTN %04X\n", k->data[JOYPAD_BUTTONS]);
             if (k->port < MAX_PORTS) memcpy(gamepad_state[k->port], k->data, sizeof(k->data));
-        } else if (msg_type == VIDEO_OUT) {
-            struct message_video_out *k = (void*)buf;
-            dispmanx_set_pos(k->posx, k->posy, k->zoom);
         } else if (msg_type == PAUSE_GAME) {
             play_state = 0;
         } else if (msg_type == START_GAME) {
@@ -654,7 +654,6 @@ void read_comm() {
 }
 #include <sys/mman.h>
 #define SHARED_MEM_SIZE (4 * 1024 * 1024)
-void *shared_mem;
 #pragma GCC optimize ("O0")
 int main(int argc, char** argv) {
     const char *cname = 0, *path = 0;
@@ -675,7 +674,6 @@ int main(int argc, char** argv) {
     rt_log("COMM SOCKET %d\n", comm_socket);
 //    init_input();
 //    rt_log("INPUT STARTED\n");
-    dispmanx_init();
 
     if (argc < 2) {
         return 0;
@@ -796,7 +794,6 @@ int main(int argc, char** argv) {
             core.retro_run();
             frames++;
         }
-        else dispmanx_show_last();
         int64_t frame_time_ms = 1000000 / rsavi.timing.fps;
         int64_t d = timestamp() - s;
         if (frame_time_ms > d) usleep(frame_time_ms - d);
@@ -810,7 +807,6 @@ int main(int argc, char** argv) {
     core.retro_deinit();
     rt_log("core deinitialized\n");
     dlclose(core.handle);
-    dispmanx_close();
 
     return EXIT_SUCCESS;
 }

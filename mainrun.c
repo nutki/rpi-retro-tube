@@ -9,6 +9,7 @@
 #include "maininput.h"
 #include "main.h"
 #include "mainlog.h"
+#include "maindispmanx.h"
 
 #define SHARED_MEM_SIZE (4 * 1024 * 1024)
 struct core_worker {
@@ -71,13 +72,6 @@ void core_message_input_data(struct core_worker *core, int port, int16_t *data) 
     message.port = port;
     if (data) memcpy(message.data, data, sizeof(message.data));
     else memset(message.data, 0, sizeof(message.data));
-    write(core->comm_socket, &message, sizeof(message));
-}
-void core_message_video_out(struct core_worker *core, int x, int y, int zoom) {
-    struct message_video_out message = { VIDEO_OUT };
-    message.posx = x;
-    message.posy = y;
-    message.zoom = zoom;
     write(core->comm_socket, &message, sizeof(message));
 }
 void core_input_focus(struct core_worker *core, int on) {
@@ -143,13 +137,14 @@ int main() {
     signal(SIGTERM, term);
     signal(SIGINT, term);
     input_handler_init();
+    dispmanx_init();
     rt_log("udev input initialized\n");
     int current_worker_idx = 0;
     load_content_queue();
     for (int i = 0; i < MAX_CONTENT && list[i].core; i++) {
         num_workers++;
         workers[i] = core_start(list[i].core, list[i].filename);
-        core_message_video_out(workers[i], -180 + i * 250, 0, i ? 0x80 : 0xC0);
+        dispmanx_set_pos(i, -180 + i * 250, 0, i ? 0x80 : 0xC0);
     }
     rt_log("cores spawned\n");
     core_message(workers[0], START_GAME);
@@ -162,7 +157,7 @@ int main() {
             current_worker_idx %= num_workers;
             for (int i = 0; i < num_workers; i++) if (workers[i]) {
                 core_message(workers[i], i == current_worker_idx ? START_GAME : PAUSE_GAME);
-                core_message_video_out(workers[i], -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
+                dispmanx_set_pos(i, -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
             }
         }
         if (ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_A)) {
@@ -173,12 +168,12 @@ int main() {
             if (!ui_focus) {
                 for (int i = 0; i < num_workers; i++) if (workers[i]) {
                     core_input_focus(workers[i], i == current_worker_idx);
-                    core_message_video_out(workers[i], i == current_worker_idx ? 0 : 800, 0, 0x200);
+                    dispmanx_set_pos(i, i == current_worker_idx ? 0 : 800, 0, 0x200);
                 }
             } else {
                 for (int i = 0; i < num_workers; i++) if (workers[i]) {
                     core_input_focus(workers[i], 0);
-                    core_message_video_out(workers[i], -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
+                    dispmanx_set_pos(i, -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
                 }
             }
         }
@@ -190,11 +185,18 @@ int main() {
             if (r&8 && c_focus) core_message_input_data(c_focus, 3, get_gamepad_state(3));
             if (r&16 && c_focus) core_message_keyboard_data(c_focus, get_keyboard_state());
         }
+        for (int i = 0; i < num_workers; i++) if (workers[i]->memory) {
+            struct video_frame last_frame = *(struct video_frame *)(workers[i]->memory);
+            last_frame.data = workers[i]->memory + 64;
+            if (last_frame.fmt) dispmanx_update_frame(i, &last_frame);
+        }
         usleep(1000000/60);
+        dispmanx_show();
     }
     for (int i = 0; i < num_workers; i++) if (workers[i]) {
         core_message(workers[i], QUIT_CORE);
     }
     input_handler_disconnect_bt();
+    dispmanx_close();
     return 0;
 }

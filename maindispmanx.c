@@ -11,17 +11,19 @@
 #define ELEMENT_CHANGE_MASK_RESOURCE (1 << 4)
 #define ELEMENT_CHANGE_TRANSFORM (1 << 5)
 
+#define MAX_ELEMENTS 16
 static DISPMANX_DISPLAY_HANDLE_T display;
-static DISPMANX_RESOURCE_HANDLE_T resource;
-static DISPMANX_ELEMENT_HANDLE_T element;
-#define SCREENX 384
-#define SCREENY 288
-static int screenX, screenY, screenXoffset;
+static struct frame_element {
+  DISPMANX_RESOURCE_HANDLE_T element;
+  DISPMANX_RESOURCE_HANDLE_T resource;
+  DISPMANX_RESOURCE_HANDLE_T old_resource;
+  int w, h, pitch, mode;
+  float aspect;
+  int x, y, zoom;
+  int dst_rect_dirty, src_rect_dirty;
+} frame_elements[MAX_ELEMENTS];
 
-int current_w, current_h, current_pitch;
-int current_mode;
-float current_aspect;
-const void *current_screen;
+static int screenX, screenY, screenXoffset;
 
 VC_IMAGE_TYPE_T pixel_format_to_mode(enum retro_pixel_format fmt) {
   switch (fmt) {
@@ -52,76 +54,90 @@ int pixel_format_to_size(enum retro_pixel_format fmt) {
   return 0;
 }
 
-int current_zoom = 0x200, current_dx, current_dy, needs_pos_update = 1;
-
-void dispmanx_set_pos(int dx, int dy, int zoom) {
-  needs_pos_update = current_zoom != zoom || current_dx != dx || current_dy != dy;
-  current_zoom = zoom;
-  current_dx = dx;
-  current_dy = dy;
+void dispmanx_set_pos(int idx, int dx, int dy, int zoom) {
+  struct frame_element *fe = &frame_elements[idx];
+  fe->dst_rect_dirty = fe->zoom != zoom || fe->x != dx || fe->y != dy;
+  fe->zoom = zoom;
+  fe->x = dx;
+  fe->y = dy;
 }
-static int apply_zoom(int v) { return (v * current_zoom) >> 8; }
+static int apply_zoom(struct frame_element *fe, int v) { return (v * fe->zoom) >> 8; }
 
-static void dispmanx_show(const char *buf, int w, int h, int pitch, float aspect, int new_mode) {
-  if (buf)
-    current_screen = buf;
-  if (!aspect)
-    aspect = (float)w / h;
-  int pitch_w = pitch / pixel_format_to_size(new_mode);
-  if (pitch != current_pitch || w != current_w || h != current_h || new_mode != current_mode || needs_pos_update) {
-    uint32_t vc_image_ptr = 0;
-    DISPMANX_RESOURCE_HANDLE_T new_resource =
-        vc_dispmanx_resource_create(pixel_format_to_mode(new_mode), pitch_w, h, &vc_image_ptr);
-    DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
+void dispmanx_show() {
+  // int has_dirty = 0;
+  // for (int i = 0; i < MAX_ELEMENTS; i++) {
+  //   struct frame_element *fe = &frame_elements[i];
+  //   has_dirty = has_dirty || fe->src_rect_dirty || fe->dst_rect_dirty;
+  // }
+  // if (!has_dirty) return;
+  
+  DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
+  for (int i = 0; i < MAX_ELEMENTS; i++) {
+  struct frame_element *fe = &frame_elements[i];
+  int w = fe->w, h = fe->h;
+  float aspect = fe->aspect;
+  if (fe->src_rect_dirty || fe->dst_rect_dirty) {
     VC_RECT_T srcRect, dstRect;
     vc_dispmanx_rect_set(&srcRect, 0, 0, w << 16, h << 16);
     int target_w = (w * screenX * 3 / 4 / screenY) * (aspect * h / w);
-    vc_dispmanx_rect_set(&dstRect, (screenX - apply_zoom(target_w)) / 2 + current_dx,
-                         (screenY - apply_zoom(h)) / 2 + current_dy, apply_zoom(target_w), apply_zoom(h));
-    if (buf)
-      vc_dispmanx_element_change_source(update, element, new_resource);
-    vc_dispmanx_element_change_attributes(update, element, ELEMENT_CHANGE_SRC_RECT | ELEMENT_CHANGE_DEST_RECT, 0, 0,
+    vc_dispmanx_rect_set(&dstRect, (screenX - apply_zoom(fe, target_w)) / 2 + fe->x,
+                         (screenY - apply_zoom(fe, h)) / 2 + fe->y, apply_zoom(fe, target_w), apply_zoom(fe, h));
+    if (fe->element) {
+    vc_dispmanx_element_change_source(update, fe->element, fe->resource);
+    vc_dispmanx_element_change_attributes(update, fe->element, ELEMENT_CHANGE_SRC_RECT | ELEMENT_CHANGE_DEST_RECT, 0, 0,
                                           &dstRect, &srcRect, 0, 0);
-    vc_dispmanx_update_submit_sync(update);
-    if (resource)
-      vc_dispmanx_resource_delete(resource);
-    resource = new_resource;
-    rt_log("Resizing canvas %dx%d => %d(%d)x%d %f pixel aspect = %f\n", current_w, current_h, w, target_w, h,
+    } else {
+      int layer = 10;
+      fe->element = vc_dispmanx_element_add(update, display, layer, &dstRect, fe->resource, &srcRect, DISPMANX_PROTECTION_NONE,
+                                    NULL, NULL, DISPMANX_NO_ROTATE);
+    }
+    rt_log("Resizing canvas %dx%d => %d(%d)x%d %f pixel aspect = %f\n", fe->w, fe->h, w, target_w, h,
            aspect, aspect * h / w);
+    fe->dst_rect_dirty = fe->src_rect_dirty = 0;
   }
-  if (w != current_w || h != current_h || current_aspect != aspect) {
-    // change dst rect
   }
-  current_aspect = aspect;
-  current_h = h;
-  current_w = w;
-  current_pitch = pitch;
-  current_mode = new_mode;
-  needs_pos_update = 0;
-  //    DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
+  vc_dispmanx_update_submit_sync(update);
+  for (int i = 0; i < MAX_ELEMENTS; i++) {
+  struct frame_element *fe = &frame_elements[i];
+  if (fe->old_resource) {
+        vc_dispmanx_resource_delete(fe->old_resource);
+        fe->old_resource = 0;
+  }
+  }
+}
+void dispmanx_update_frame(int idx, struct video_frame *frame) {
+  struct frame_element *fe = &frame_elements[idx];
+    int pitch_w = frame->pitch / pixel_format_to_size(frame->fmt);
+  if (frame->pitch != fe->pitch || frame->w != fe->w || frame->h != fe->h || frame->fmt != fe->mode) {
+    fe->src_rect_dirty = 1;
+    if (fe->resource) {
+      assert(fe->old_resource == 0);
+      if (fe->old_resource) {
+        vc_dispmanx_resource_delete(fe->resource);
+      } else {
+        fe->old_resource = fe->resource;
+      }
+    }
+    uint32_t vc_image_ptr = 0;
+    fe->resource =
+        vc_dispmanx_resource_create(pixel_format_to_mode(frame->fmt), pitch_w, frame->h, &vc_image_ptr);
+        fe->h = frame->h;
+        fe->w = frame->w;
+        fe->pitch = frame->pitch;
+        fe->mode = frame->fmt;
+  }
+  float aspect = frame->aspect ? frame->aspect : frame->h ? (float)frame->w / frame->h : 1; 
+  if (fe->aspect != aspect) {
+    fe->dst_rect_dirty = 1;
+    fe->aspect = aspect;
+  }
   VC_RECT_T bmpRect;
-  //	VC_RECT_T zeroRect;
-  vc_dispmanx_rect_set(&bmpRect, 0, 0, pitch_w, h);
-  if (buf)
-    vc_dispmanx_resource_write_data(resource, pixel_format_to_mode(current_mode), pitch, (void *)buf, &bmpRect);
-  //   vc_dispmanx_rect_set(&zeroRect, 0, 0, screenX, screenY);
-  //   vc_dispmanx_element_change_attributes(update, element, ELEMENT_CHANGE_DEST_RECT, 0, 0, &zeroRect, 0, 0, 0);
-  //	int result = vc_dispmanx_update_submit_sync(update); // This waits for vsync?
-  //	assert(result == 0);
+  vc_dispmanx_rect_set(&bmpRect, 0, 0, pitch_w, frame->h);
+    vc_dispmanx_resource_write_data(fe->resource, pixel_format_to_mode(fe->mode), frame->pitch, (void *)frame->data, &bmpRect);
 }
-void dispmanx_show_frame(struct video_frame *frame) {
-    dispmanx_show(frame->data, frame->w, frame->h, frame->pitch, frame->aspect, frame->fmt);
-}
-
-void dispmanx_show_last(void) {
-    dispmanx_show(0, current_w, current_h, current_pitch, current_aspect, current_mode);
-}
-
 
 void dispmanx_init() {
-  int32_t layer = 10;
   u_int32_t displayNumber = 0;
-  int result = 0;
 
   // Init BCM
   bcm_host_init();
@@ -185,41 +201,25 @@ void dispmanx_init() {
     }
   screenXoffset = (screenX - screenX * aspectY * 4 / 3 / aspectX) / 2;
 
-  // Create a resource and copy bitmap to resource
-  uint32_t vc_image_ptr = 0;
-  resource = vc_dispmanx_resource_create(VC_IMAGE_RGB565, 1, 1, &vc_image_ptr);
-
-  assert(resource != 0);
-
-  // Notify vc that an update is takng place
-  DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
-  assert(update != 0);
-
-  // Calculate source and destination rect values
-  VC_RECT_T srcRect, dstRect;
-  vc_dispmanx_rect_set(&srcRect, 0, 0, 1 << 16, 1 << 16);
-  vc_dispmanx_rect_set(&dstRect, -1, -1, 1, 1);
-
-  // Add element to vc
-  element = vc_dispmanx_element_add(update, display, layer, &dstRect, resource, &srcRect, DISPMANX_PROTECTION_NONE,
-                                    NULL, NULL, DISPMANX_NO_ROTATE);
-
-  assert(element != 0);
-
-  // Notify vc that update is complete
-  result = vc_dispmanx_update_submit_sync(update); // This waits for vsync?
-  assert(result == 0);
   rt_log("DISPMANX INITED\n");
 }
 void dispmanx_close() {
   int result;
   DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
-  if (element)
-    result = vc_dispmanx_element_remove(update, element);
+  for (int i = 0; i < MAX_ELEMENTS; i++) {
+    if (frame_elements[i].element)
+      result = vc_dispmanx_element_remove(update, frame_elements[i].element);
+  }
   result = vc_dispmanx_update_submit_sync(update);
-  if (resource) {
-    result = vc_dispmanx_resource_delete(resource);
+  for (int i = 0; i < MAX_ELEMENTS; i++) {
+  if (frame_elements[i].resource) {
+    result = vc_dispmanx_resource_delete(frame_elements[i].resource);
     assert(result == 0);
+  }
+  if (frame_elements[i].old_resource) {
+    result = vc_dispmanx_resource_delete(frame_elements[i].old_resource);
+    assert(result == 0);
+  }
   }
   if (display) {
     result = vc_dispmanx_display_close(display);
