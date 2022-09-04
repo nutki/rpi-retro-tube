@@ -299,6 +299,14 @@ bool retro_environment(unsigned int cmd, void *data) {
                 var->value = "enabled";
                 return true;
             }
+            if (!strcmp(var->key, "duckstation_GPU.Renderer")) {
+                var->value = "Software";
+                return true;
+            }
+            if (!strcmp(var->key, "duckstation_Display.CropMode")) {
+                var->value = "None";
+                return true;
+            }
             // if (!strcmp(var->key, "atari800_system")) {
             //     var->value = "5200";
             //     return true;
@@ -698,6 +706,8 @@ int main(int argc, char** argv) {
     } else if(!strcmp(argv[1], "psx")) {
         cname = "/opt/retropie/libretrocores/lr-pcsx-rearmed/pcsx_rearmed_libretro.so"; // ok, aspect unknown
         path = "/home/pi/RetroPie/roms/psx/Castlevania.bin";
+    } else if(!strcmp(argv[1], "psx-ds")) {
+        cname = "./duckstation_libretro.so";
     } else if(!strcmp(argv[1], "nes")) {
         cname = "/opt/retropie/libretrocores/lr-fceumm/fceumm_libretro.so"; // ok, aspect unknown, configurable
         path = "./Metal Gear (USA).nes";
