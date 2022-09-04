@@ -9,15 +9,15 @@ void sdtv_change_mode(int is_50hz, int is_interlaced) {
   if (!is_interlaced)
     mode |= SDTV_MODE_PROGRESSIVE;
   SDTV_OPTIONS_T options = {aspect : sdtv_aspect};
-  if (last_mode == mode) return;
+  if (last_mode == mode)
+    return;
   last_mode = mode;
   vc_tv_sdtv_power_on_id(0, mode, &options);
 }
 
 #define FILTER_ON_CMD                                                                                                  \
   "scaling_kernel "                                                                                                    \
-  "0 -2 -6 -8 -10 -8 -3 2 18 50 82 119 155 187 213 227 227 213 187 155 119 82 50 18 2 -3 -8 -10 -8 -6 "                \
-  "-2 0 0"
+  "0 -2 -6 -8 -10 -8 -3 2 18 50 82 119 155 187 213 227 227 213 187 155 119 82 50 18 2 -3 -8 -10 -8 -6 -2 0 0"
 #define FILTER_OFF_CMD                                                                                                 \
   "scaling_kernel "                                                                                                    \
   "0 0 0 0 0 0 0 0 1 1 1 1 255 255 255 255 255 255 255 255 1 1 1 1 0 0 0 0 0 0 0 0 1"
@@ -45,7 +45,6 @@ void sdtv_set_filtering(int enabled) {
   }
   rt_log("changing filtering\n");
 
-
   vc_vchi_gencmd_init(vchi_instance, &vchi_connection, 1);
   vc_gencmd_send(enabled ? FILTER_ON_CMD : FILTER_OFF_CMD);
 
@@ -55,5 +54,5 @@ void sdtv_set_filtering(int enabled) {
     rt_log("gencmd response: %s\n", buffer);
   }
   vc_gencmd_stop();
-//  vchi_disconnect(vchi_instance);
+  // vchi_disconnect(vchi_instance);
 }
