@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <byteswap.h>
+#include "mainlog.h"
 
 #define BIT(x) (1<<(x))
 
@@ -84,7 +85,7 @@ static unsigned int get_reg_base() {
     read(f, &reg, sizeof(reg));
     read(f, &reg, sizeof(reg));
     reg = bswap_32(reg);
-    printf("Detected register base address: 0x%08x\n", reg);
+    rt_log("Detected register base address: 0x%08x\n", reg);
     return reg;
 }
 void engage_pal60(void) {
@@ -98,7 +99,7 @@ void engage_pal60(void) {
         reg_base = get_reg_base();
     }
     unsigned int *vec_regs = mmap(0, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, reg_base + 0x806000);
-    printf("Videocore chip revision: %x\n", vec_regs[VEC_REVID/4]);
+    rt_log("Videocore chip revision: %x\n", vec_regs[VEC_REVID/4]);
     int freq_pal_hi = 0x00002a09;
     int freq_pal_lo = 0x00008acb;
     vec_regs[VEC_FREQ3_2/4] = freq_pal_hi;
