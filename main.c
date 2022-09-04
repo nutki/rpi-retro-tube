@@ -716,6 +716,8 @@ int main(int argc, char** argv) {
     } else if(!strcmp(argv[1], "nes")) {
         cname = "/opt/retropie/libretrocores/lr-fceumm/fceumm_libretro.so"; // ok, aspect unknown, configurable
         path = "./Metal Gear (USA).nes";
+    } else if(!strcmp(argv[1], "amiga2")) {
+        cname = "./puae2021_libretro.so";
     } else if(!strcmp(argv[1], "amiga")) {
         cname = "/opt/retropie/libretrocores/lr-puae/puae_libretro.so"; // ok, aspect bad?  - cannot restore whdload save state, reconfigures terminal
 //        path = "/home/pi/LupoAlberto_v1.01.lha";
