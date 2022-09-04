@@ -49,6 +49,10 @@ void alsa_init(int fq) {
 void alsa_write(const int16_t *buffer, int len) {
 //    snd_pcm_prepare(alsa);
     snd_pcm_sframes_t f1 = -1,f2=-1;
+    if (!alsa) {
+        rt_log("audio frame without alsa (%d)\n", len);
+        return;
+    }
     int e = snd_pcm_avail_delay(alsa, &f1, &f2);
     if (e == -32) {
         snd_pcm_prepare(alsa);
