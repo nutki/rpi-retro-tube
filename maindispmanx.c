@@ -65,6 +65,7 @@ void dispmanx_set_pos(int idx, int dx, int dy, int zoom) {
 static int apply_zoom(struct frame_element *fe, int v) { return (v * fe->zoom) >> 8; }
 int needs_reinit = 0;
 static pthread_mutex_t update_mutex = PTHREAD_MUTEX_INITIALIZER;
+static void dispmanx_display_init(void);
 void dispmanx_show() {
   // int has_dirty = 0;
   // for (int i = 0; i < MAX_ELEMENTS; i++) {
@@ -86,7 +87,7 @@ void dispmanx_show() {
       result = vc_dispmanx_display_close(display);
       assert(result == 0);
     }
-    display = vc_dispmanx_display_open(0);
+    dispmanx_display_init();
     rt_log("reinitialized\n");
   }
   
@@ -167,11 +168,13 @@ void tvservice_callback(void *data, uint32_t reason, uint32_t p1, uint32_t p2) {
   }
 }
 void dispmanx_init() {
-  u_int32_t displayNumber = 0;
-
-  // Init BCM
   bcm_host_init();
-
+  dispmanx_display_init();
+  vc_tv_register_callback(tvservice_callback, 0);
+  rt_log("DISPMANX INITED\n");
+}
+static void dispmanx_display_init() {
+  u_int32_t displayNumber = 0;
   display = vc_dispmanx_display_open(displayNumber);
   assert(display != 0);
   TV_DISPLAY_STATE_T tvstate;
@@ -231,8 +234,6 @@ void dispmanx_init() {
     }
   sdtv_aspect = tvstate.display.sdtv.display_options.aspect;
   screenXoffset = (screenX - screenX * aspectY * 4 / 3 / aspectX) / 2;
-  vc_tv_register_callback(tvservice_callback, 0);
-  rt_log("DISPMANX INITED\n");
 }
 void dispmanx_close() {
   int result;
