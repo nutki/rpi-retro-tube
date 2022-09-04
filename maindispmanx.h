@@ -5,6 +5,7 @@ struct video_frame {
     int w, h, pitch, fmt;
     float aspect;
     const void *data;
+    int time_us;
 };
 
 void dispmanx_update_frame(int idx, struct video_frame *frame);

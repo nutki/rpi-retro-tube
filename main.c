@@ -399,6 +399,7 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     last_frame.pitch = pitch;
     last_frame.aspect = rsavi.geometry.aspect_ratio;
     last_frame.fmt = pixel_format;
+    last_frame.time_us = (int)(1000000/(rsavi.timing.fps ? rsavi.timing.fps : 1));
     memcpy(shared_mem + 64, data, h * pitch);
     *(struct video_frame *)shared_mem = last_frame;
 }
@@ -568,6 +569,7 @@ void load_state_1(const char *name) {
         last_frame.pitch = game_state.header.pitch;
         last_frame.aspect = game_state.header.aspect;
         last_frame.fmt = game_state.header.fmt;
+        last_frame.time_us = 1000000;
         memcpy(shared_mem + 64, last_frame.data, last_frame.h * last_frame.pitch);
         *(struct video_frame *)shared_mem = last_frame;
     } else {

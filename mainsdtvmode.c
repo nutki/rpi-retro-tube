@@ -4,15 +4,18 @@
 
 int last_mode = -1;
 extern int sdtv_aspect;
-void sdtv_change_mode(int is_50hz, int is_interlaced) {
-  SDTV_MODE_T mode = is_50hz ? SDTV_MODE_PAL : SDTV_MODE_NTSC;
-  if (!is_interlaced)
-    mode |= SDTV_MODE_PROGRESSIVE;
+void sdtv_set_mode(int mode) {
   SDTV_OPTIONS_T options = {aspect : sdtv_aspect};
   if (last_mode == mode)
     return;
   last_mode = mode;
   vc_tv_sdtv_power_on_id(0, mode, &options);
+}
+void sdtv_change_mode(int is_50hz, int is_interlaced) {
+  SDTV_MODE_T mode = is_50hz ? SDTV_MODE_PAL : SDTV_MODE_NTSC;
+  if (!is_interlaced)
+    mode |= SDTV_MODE_PROGRESSIVE;
+  sdtv_set_mode(mode);
 }
 
 #define FILTER_ON_CMD                                                                                                  \

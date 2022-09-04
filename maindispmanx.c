@@ -4,6 +4,8 @@
 #include "maindispmanx.h"
 #include <bcm_host.h>
 #include <pthread.h>
+#include "mainsdtvmode.h"
+#include "mainpal60.h"
 
 #define ELEMENT_CHANGE_LAYER (1 << 0)
 #define ELEMENT_CHANGE_OPACITY (1 << 1)
@@ -22,6 +24,8 @@ static struct frame_element {
   float aspect;
   int x, y, zoom;
   int dst_rect_dirty, src_rect_dirty;
+  int time_us;
+  int framerate_dirty;
 } frame_elements[MAX_ELEMENTS];
 
 static int screenX, screenY, screenXoffset;
@@ -62,10 +66,16 @@ void dispmanx_set_pos(int idx, int dx, int dy, int zoom) {
   fe->x = dx;
   fe->y = dy;
 }
-static int apply_zoom(struct frame_element *fe, int v) { return (v * fe->zoom) >> 8; }
+static int apply_zoom(struct frame_element *fe, int v) {
+  int zoom = fe->zoom;
+  if (fe->h > 288) zoom /= 2;
+  return (v * zoom) >> 8;
+}
 int needs_reinit = 0;
 static pthread_mutex_t update_mutex = PTHREAD_MUTEX_INITIALIZER;
-static void dispmanx_display_init(void);
+static int dispmanx_display_init(void);
+int original_mode;
+int pal60_hack;
 void dispmanx_show() {
   // int has_dirty = 0;
   // for (int i = 0; i < MAX_ELEMENTS; i++) {
@@ -91,11 +101,17 @@ void dispmanx_show() {
     rt_log("reinitialized\n");
   }
   
+  struct frame_element *fullscreen_element = 0;
+  static struct frame_element *prev_fullscreen_element = 0;
   DISPMANX_UPDATE_HANDLE_T update = vc_dispmanx_update_start(0);
   for (int i = 0; i < MAX_ELEMENTS; i++) {
   struct frame_element *fe = &frame_elements[i];
   int w = fe->w, h = fe->h;
   float aspect = fe->aspect;
+  if (!fe->x && !fe->y && fe->zoom == 0x200) {
+    fullscreen_element = fe;
+  }
+  if (!fe->h) continue; 
   if (fe->src_rect_dirty || fe->dst_rect_dirty || needs_reinit) {
     VC_RECT_T srcRect, dstRect;
     vc_dispmanx_rect_set(&srcRect, 0, 0, w << 16, h << 16);
@@ -111,8 +127,8 @@ void dispmanx_show() {
       fe->element = vc_dispmanx_element_add(update, display, layer, &dstRect, fe->resource, &srcRect, DISPMANX_PROTECTION_NONE,
                                     NULL, NULL, DISPMANX_NO_ROTATE);
     }
-    rt_log("Resizing canvas %dx%d => %d(%d)x%d %f pixel aspect = %f\n", fe->w, fe->h, w, target_w, h,
-           aspect, aspect * h / w);
+    rt_log("Resizing canvas %dx%d => %d(%d)x%d %f pixel aspect = %f frame time = %d (%.2ffps)\n", fe->w, fe->h, w, target_w, h,
+           aspect, aspect * h / w, fe->time_us, 1000000./fe->time_us);
     fe->dst_rect_dirty = fe->src_rect_dirty = 0;
   }
   }
@@ -126,6 +142,22 @@ void dispmanx_show() {
   }
   needs_reinit = 0;
   pthread_mutex_unlock(&update_mutex);
+  if (fullscreen_element != prev_fullscreen_element || (fullscreen_element && fullscreen_element->framerate_dirty)) {
+    if (fullscreen_element) {
+      sdtv_set_filtering(0);
+      int is_50hz = abs(fullscreen_element->time_us - 20000) < 200;
+      int is_interlaced = fullscreen_element->h > 288;
+      if (!is_50hz) {
+        pal60_hack = 1;
+      }
+      sdtv_change_mode(is_50hz, is_interlaced);
+      fullscreen_element->framerate_dirty = 0;
+    } else {
+      sdtv_set_filtering(1);
+      sdtv_set_mode(original_mode);
+    }
+  }
+  prev_fullscreen_element = fullscreen_element;
 }
 void dispmanx_update_frame(int idx, struct video_frame *frame) {
   struct frame_element *fe = &frame_elements[idx];
@@ -153,6 +185,10 @@ void dispmanx_update_frame(int idx, struct video_frame *frame) {
     fe->dst_rect_dirty = 1;
     fe->aspect = aspect;
   }
+  if (fe->time_us != frame->time_us) {
+    fe->time_us = frame->time_us;
+    fe->framerate_dirty = 1;
+  }
   VC_RECT_T bmpRect;
   vc_dispmanx_rect_set(&bmpRect, 0, 0, pitch_w, frame->h);
     vc_dispmanx_resource_write_data(fe->resource, pixel_format_to_mode(fe->mode), frame->pitch, (void *)frame->data, &bmpRect);
@@ -160,6 +196,10 @@ void dispmanx_update_frame(int idx, struct video_frame *frame) {
 
 int sdtv_aspect = 0;
 void tvservice_callback(void *data, uint32_t reason, uint32_t p1, uint32_t p2) {
+  if ((reason & VC_SDTV_NTSC) && pal60_hack) {
+    engage_pal60();
+    pal60_hack = 0;
+  }
   if (reason & (VC_SDTV_NTSC | VC_SDTV_PAL)) {
     rt_log("video mode updated, needs dispmanx reinit\n");
     pthread_mutex_lock(&update_mutex);
@@ -169,11 +209,11 @@ void tvservice_callback(void *data, uint32_t reason, uint32_t p1, uint32_t p2) {
 }
 void dispmanx_init() {
   bcm_host_init();
-  dispmanx_display_init();
+  original_mode = dispmanx_display_init();
   vc_tv_register_callback(tvservice_callback, 0);
   rt_log("DISPMANX INITED\n");
 }
-static void dispmanx_display_init() {
+static int dispmanx_display_init() {
   u_int32_t displayNumber = 0;
   display = vc_dispmanx_display_open(displayNumber);
   assert(display != 0);
@@ -234,6 +274,7 @@ static void dispmanx_display_init() {
     }
   sdtv_aspect = tvstate.display.sdtv.display_options.aspect;
   screenXoffset = (screenX - screenX * aspectY * 4 / 3 / aspectX) / 2;
+  return tvstate.display.sdtv.mode;
 }
 void dispmanx_close() {
   int result;

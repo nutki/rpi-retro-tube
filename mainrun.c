@@ -167,15 +167,11 @@ int main() {
         }
         if (ui_controls & UI_FOCUS_CHANGE) {
             if (!ui_focus) {
-                sdtv_set_filtering(0);
-                sdtv_change_mode(1, 0);
                 for (int i = 0; i < num_workers; i++) if (workers[i]) {
                     core_input_focus(workers[i], i == current_worker_idx);
                     dispmanx_set_pos(i, i == current_worker_idx ? 0 : 800, 0, 0x200);
                 }
             } else {
-                sdtv_set_filtering(1);
-                sdtv_change_mode(1, 1);
                 for (int i = 0; i < num_workers; i++) if (workers[i]) {
                     core_input_focus(workers[i], 0);
                     dispmanx_set_pos(i, -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
