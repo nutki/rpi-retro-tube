@@ -690,6 +690,7 @@ int main(int argc, char** argv) {
     if (argc < 2) {
         return 0;
     }
+    int dry_run_frames = 0;
     if (!strcmp(argv[1], "cplus4")) {
 //        cname = "/opt/retropie/libretrocores/lr-vice/vice_xplus4_libretro.so"; // ok, aspect bad? save state broken
         cname = "/home/pi/GIT/vice-libretro/vice_xplus4_libretro.so"; // ok, aspect bad?
@@ -731,6 +732,7 @@ int main(int argc, char** argv) {
     } else if(!strcmp(argv[1], "zx")) {
         cname = "/opt/retropie/libretrocores/lr-fuse/fuse_libretro.so"; // ok, aspect 0, save state broken?
         path = "/home/pi//RetroPie/roms/zxspectrum/3D Deathchase (1983)(Zeppelin Games Ltd).tzx";
+        dry_run_frames = 1;
     } else if(!strcmp(argv[1], "atari")) {
         cname = "/opt/retropie/libretrocores/lr-atari800/atari800_libretro.so"; // ok, aspect unknown
         path = "/home/pi/Mr. Robot and His Robot Factory (1983)(Datamost)(US)[h SOL].atr";
@@ -757,6 +759,7 @@ int main(int argc, char** argv) {
     } else if (!strcmp(argv[1], "mame")) {
         cname = "/opt/retropie/libretrocores/lr-mame2003/mame2003_libretro.so";
         path = "/home/pi/RetroPie/roms/mame/moonwlkb.zip";
+        dry_run_frames = 3;
     }
     if (argc >= 3) {
         path = argv[2];
@@ -790,12 +793,11 @@ int main(int argc, char** argv) {
 
     if (load_game(path) < 0) return -1;
 
-    if (game_state.header.state_data_size) {
+    if (game_state.header.state_data_size && dry_run_frames) {
         dry_run = 1;
-        core.retro_run();
-        core.retro_run();
-        core.retro_run();
-        core.retro_run();
+        for (int i = 0; i < dry_run_frames; i++) {
+            core.retro_run();
+        }
         dry_run = 0;
     }
     load_state_2();
