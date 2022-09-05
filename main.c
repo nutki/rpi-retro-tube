@@ -15,6 +15,10 @@
 #include "main.h"
 #include "mainlog.h"
 #include "maindispmanx.h"
+#include <stdatomic.h>
+
+#define acquire(m) while (atomic_flag_test_and_set(m))
+#define release(m) atomic_flag_clear(m)
 
 void retro_set_led_state(int led, int state) {
     rt_log("LED: %d %d\n", led, state);
@@ -383,7 +387,7 @@ bool retro_environment(unsigned int cmd, void *data) {
     return false;
 } 
 int dry_run;
-struct video_frame last_frame;
+struct video_frame *last_frame;
 uint8_t *shared_mem;
 void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_t pitch) {
     static int frame = 0;
@@ -393,15 +397,17 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     if (!data) {
         return;
     }
-    last_frame.data = data;
-    last_frame.w = w;
-    last_frame.h = h;
-    last_frame.pitch = pitch;
-    last_frame.aspect = rsavi.geometry.aspect_ratio;
-    last_frame.fmt = pixel_format;
-    last_frame.time_us = (int)(1000000/(rsavi.timing.fps ? rsavi.timing.fps : 1));
+    acquire(&last_frame->mutex);
+    last_frame->data = data;
+    last_frame->w = w;
+    last_frame->h = h;
+    last_frame->pitch = pitch;
+    last_frame->aspect = rsavi.geometry.aspect_ratio;
+    last_frame->fmt = pixel_format;
+    last_frame->time_us = (int)(1000000/(rsavi.timing.fps ? rsavi.timing.fps : 1));
+    last_frame->id++;
+    release(&last_frame->mutex);
     memcpy(shared_mem + 64, data, h * pitch);
-    *(struct video_frame *)shared_mem = last_frame;
 }
 #define MAX_AUDIO_SAMPLES 1000
 int16_t audiobuf[MAX_AUDIO_SAMPLES * 2];
@@ -526,14 +532,14 @@ struct game_state {
 } game_state;
 char state_tmp[1024*1024*10];
 void save_state(const char *name) {
-    game_state.header.aspect = last_frame.aspect;
-    game_state.header.w = last_frame.w;
-    game_state.header.h = last_frame.h;
-    game_state.header.pitch = last_frame.pitch;
-    game_state.header.fmt = last_frame.fmt;
-    game_state.header.screen_data_size = last_frame.h * last_frame.pitch;
+    game_state.header.aspect = last_frame->aspect;
+    game_state.header.w = last_frame->w;
+    game_state.header.h = last_frame->h;
+    game_state.header.pitch = last_frame->pitch;
+    game_state.header.fmt = last_frame->fmt;
+    game_state.header.screen_data_size = last_frame->h * last_frame->pitch;
     game_state.header.state_data_size = core.retro_serialize_size();
-    const void *current_screen = last_frame.data;
+    const void *current_screen = last_frame->data;
     if (current_screen == game_state.screen) {
         memcpy(state_tmp, current_screen, game_state.header.screen_data_size);
         current_screen = state_tmp;
@@ -563,15 +569,16 @@ void load_state_1(const char *name) {
         LZ4_decompress_safe(state_tmp, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
 
         rt_log("state loading start 2\n");
-        last_frame.data = game_state.screen;
-        last_frame.w = game_state.header.w;
-        last_frame.h = game_state.header.h;
-        last_frame.pitch = game_state.header.pitch;
-        last_frame.aspect = game_state.header.aspect;
-        last_frame.fmt = game_state.header.fmt;
-        last_frame.time_us = 1000000;
-        memcpy(shared_mem + 64, last_frame.data, last_frame.h * last_frame.pitch);
-        *(struct video_frame *)shared_mem = last_frame;
+//        acquire(&last_frame->mutex);
+        last_frame->data = game_state.screen;
+        last_frame->w = game_state.header.w;
+        last_frame->h = game_state.header.h;
+        last_frame->pitch = game_state.header.pitch;
+        last_frame->aspect = game_state.header.aspect;
+        last_frame->fmt = game_state.header.fmt;
+        last_frame->time_us = 1000000;
+        memcpy(shared_mem + 64, last_frame->data, last_frame->h * last_frame->pitch);
+        release(&last_frame->mutex);
     } else {
         lseek(fd, game_state.header.screen_data_size, SEEK_CUR);
     }
@@ -680,6 +687,8 @@ int main(int argc, char** argv) {
         int mem_fd = atoi(env_mmapfd);
         shared_mem = mmap(0, SHARED_MEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, mem_fd, 0);
         if (!shared_mem) return 0;
+        last_frame = (struct video_frame *)shared_mem;
+        release(&last_frame->mutex);
         rt_log("shared mem says: %s\n", shared_mem);
     }
     char prname[16] = {0};
@@ -762,6 +771,18 @@ int main(int argc, char** argv) {
         path = "/home/pi/ij/ATLANTIS.000";
     } else if (!strcmp(argv[1], "mame")) {
         cname = "/opt/retropie/libretrocores/lr-mame2003/mame2003_libretro.so";
+        path = "/home/pi/RetroPie/roms/mame/moonwlkb.zip";
+        dry_run_frames = 3;
+    } else if (!strcmp(argv[1], "mame2000")) {
+        cname = "/opt/retropie/libretrocores/lr-mame2000/mame2000_libretro.so";
+        path = "/home/pi/RetroPie/roms/mame/moonwlkb.zip";
+        dry_run_frames = 3;
+    } else if (!strcmp(argv[1], "mame2003plus")) {
+        cname = "/opt/retropie/libretrocores/lr-mame2003-plus/mame2003_plus_libretro.so";
+        path = "/home/pi/RetroPie/roms/mame/moonwlkb.zip";
+        dry_run_frames = 3;
+    } else if (!strcmp(argv[1], "mame2010")) {
+        cname = "/opt/retropie/libretrocores/lr-mame2010/mame2010_libretro.so";
         path = "/home/pi/RetroPie/roms/mame/moonwlkb.zip";
         dry_run_frames = 3;
     }

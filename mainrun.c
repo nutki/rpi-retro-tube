@@ -187,9 +187,8 @@ int main() {
             if (r&16 && c_focus) core_message_keyboard_data(c_focus, get_keyboard_state());
         }
         for (int i = 0; i < num_workers; i++) if (workers[i]->memory) {
-            struct video_frame last_frame = *(struct video_frame *)(workers[i]->memory);
-            last_frame.data = workers[i]->memory + 64;
-            if (last_frame.fmt) dispmanx_update_frame(i, &last_frame);
+            struct video_frame *last_frame = (struct video_frame *)(workers[i]->memory);
+            if (last_frame->fmt) dispmanx_update_frame(i, last_frame);
         }
         dispmanx_show();
     }

@@ -6,6 +6,10 @@
 #include <pthread.h>
 #include "mainsdtvmode.h"
 #include "mainpal60.h"
+#include <stdatomic.h>
+
+#define acquire(m) while (atomic_flag_test_and_set(m))
+#define release(m) atomic_flag_clear(m)
 
 #define ELEMENT_CHANGE_LAYER (1 << 0)
 #define ELEMENT_CHANGE_OPACITY (1 << 1)
@@ -26,6 +30,7 @@ static struct frame_element {
   int dst_rect_dirty, src_rect_dirty;
   int time_us;
   int framerate_dirty;
+  int last_id;
 } frame_elements[MAX_ELEMENTS];
 
 static int screenX, screenY, screenXoffset;
@@ -68,7 +73,7 @@ void dispmanx_set_pos(int idx, int dx, int dy, int zoom) {
 }
 static int apply_zoom(struct frame_element *fe, int v) {
   int zoom = fe->zoom;
-  if (fe->h > 288) zoom /= 2;
+  if (fe->h > (fe->time_us < 19000 ? 240 : 288)) zoom /= 2;
   return (v * zoom) >> 8;
 }
 int needs_reinit = 0;
@@ -149,7 +154,7 @@ void dispmanx_show() {
     if (fullscreen_element) {
       sdtv_set_filtering(0);
       int is_50hz = abs(fullscreen_element->time_us - 20000) < 200;
-      int is_interlaced = fullscreen_element->h > 288;
+      int is_interlaced = fullscreen_element->h > (is_50hz ? 288 : 240);
       if (!is_50hz) {
         pal60_hack = 1;
       }
@@ -174,7 +179,13 @@ void dispmanx_show() {
 }
 void dispmanx_update_frame(int idx, struct video_frame *frame) {
   struct frame_element *fe = &frame_elements[idx];
-    int pitch_w = frame->pitch / pixel_format_to_size(frame->fmt);
+  acquire(&frame->mutex);
+  if (fe->last_id == frame->id) {
+    rt_log("frame dupped\n");
+    release(&frame->mutex);
+    return;
+  }
+  int pitch_w = frame->pitch / pixel_format_to_size(frame->fmt);
   if (frame->pitch != fe->pitch || frame->w != fe->w || frame->h != fe->h || frame->fmt != fe->mode) {
     fe->src_rect_dirty = 1;
     if (fe->resource) {
@@ -204,7 +215,12 @@ void dispmanx_update_frame(int idx, struct video_frame *frame) {
   }
   VC_RECT_T bmpRect;
   vc_dispmanx_rect_set(&bmpRect, 0, 0, pitch_w, frame->h);
-    vc_dispmanx_resource_write_data(fe->resource, pixel_format_to_mode(fe->mode), frame->pitch, (void *)frame->data, &bmpRect);
+    vc_dispmanx_resource_write_data(fe->resource, pixel_format_to_mode(fe->mode), frame->pitch, (char *)frame + 64, &bmpRect);
+  if (fe->last_id + 1 != frame->id) {
+    rt_log("%d frame(s) dropped\n", frame->id - fe->last_id - 1);
+  }
+  fe->last_id = frame->id;
+  release(&frame->mutex);
 }
 
 int sdtv_aspect = 0;
