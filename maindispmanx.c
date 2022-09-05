@@ -73,6 +73,8 @@ static int apply_zoom(struct frame_element *fe, int v) {
 }
 int needs_reinit = 0;
 static pthread_mutex_t update_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t vsync_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t vsync_cond = PTHREAD_COND_INITIALIZER;
 static int dispmanx_display_init(void);
 int original_mode;
 int pal60_hack;
@@ -94,6 +96,7 @@ void dispmanx_show() {
     }
     result = vc_dispmanx_update_submit_sync(update);
     if (display) {
+      vc_dispmanx_vsync_callback(display, NULL, NULL);
       result = vc_dispmanx_display_close(display);
       assert(result == 0);
     }
@@ -158,6 +161,16 @@ void dispmanx_show() {
     }
   }
   prev_fullscreen_element = fullscreen_element;
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  ts.tv_nsec += 100000000;
+  if (ts.tv_nsec >= 1000000000) {
+    ts.tv_sec += 1;
+    ts.tv_nsec -= 1000000000;
+  }
+  pthread_mutex_lock(&vsync_mutex);
+  pthread_cond_timedwait(&vsync_cond, &vsync_mutex, &ts);
+  pthread_mutex_unlock(&vsync_mutex);
 }
 void dispmanx_update_frame(int idx, struct video_frame *frame) {
   struct frame_element *fe = &frame_elements[idx];
@@ -205,7 +218,11 @@ void tvservice_callback(void *data, uint32_t reason, uint32_t p1, uint32_t p2) {
     pthread_mutex_lock(&update_mutex);
     needs_reinit = 1;
     pthread_mutex_unlock(&update_mutex);
+    pthread_cond_signal(&vsync_cond);
   }
+}
+static void dispmanx_vsync() {
+  pthread_cond_signal(&vsync_cond);
 }
 void dispmanx_init() {
   bcm_host_init();
@@ -274,6 +291,7 @@ static int dispmanx_display_init() {
     }
   sdtv_aspect = tvstate.display.sdtv.display_options.aspect;
   screenXoffset = (screenX - screenX * aspectY * 4 / 3 / aspectX) / 2;
+  vc_dispmanx_vsync_callback(display, dispmanx_vsync, NULL);
   return tvstate.display.sdtv.mode;
 }
 void dispmanx_close() {
@@ -298,4 +316,6 @@ void dispmanx_close() {
     result = vc_dispmanx_display_close(display);
     assert(result == 0);
   }
+  vc_dispmanx_vsync_callback(display, NULL, NULL);
+  sdtv_set_mode(original_mode);
 }

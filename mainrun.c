@@ -191,7 +191,6 @@ int main() {
             last_frame.data = workers[i]->memory + 64;
             if (last_frame.fmt) dispmanx_update_frame(i, &last_frame);
         }
-        usleep(1000000/60);
         dispmanx_show();
     }
     for (int i = 0; i < num_workers; i++) if (workers[i]) {
