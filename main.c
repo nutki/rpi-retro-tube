@@ -438,6 +438,9 @@ int16_t retro_input_state(unsigned int port, unsigned int device, unsigned int i
     if (device == RETRO_DEVICE_KEYBOARD) {
         return (keyboardstate[id >> 3] >> (id & 7)) & 1;
     }
+    if (device == RETRO_DEVICE_MOUSE) {
+        return 0;
+    }
     if (port < MAX_PORTS) {
         int16_t *port_state = gamepad_state[port];
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return port_state[JOYPAD_BUTTONS];
@@ -569,7 +572,7 @@ void load_state_1(const char *name) {
         LZ4_decompress_safe(state_tmp, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
 
         rt_log("state loading start 2\n");
-//        acquire(&last_frame->mutex);
+        acquire(&last_frame->mutex);
         last_frame->data = game_state.screen;
         last_frame->w = game_state.header.w;
         last_frame->h = game_state.header.h;
@@ -577,6 +580,7 @@ void load_state_1(const char *name) {
         last_frame->aspect = game_state.header.aspect;
         last_frame->fmt = game_state.header.fmt;
         last_frame->time_us = 1000000;
+        last_frame->id++;
         memcpy(shared_mem + 64, last_frame->data, last_frame->h * last_frame->pitch);
         release(&last_frame->mutex);
     } else {
