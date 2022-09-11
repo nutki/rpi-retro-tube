@@ -180,7 +180,7 @@ void dispmanx_show() {
 void dispmanx_update_frame(int idx, struct video_frame *frame) {
   struct frame_element *fe = &frame_elements[idx];
   acquire(&frame->mutex);
-  if (fe->last_id == frame->id) {
+  if (frame->id == 0) {
     rt_log("frame dupped\n");
     release(&frame->mutex);
     return;
@@ -220,6 +220,7 @@ void dispmanx_update_frame(int idx, struct video_frame *frame) {
     rt_log("%d frame(s) dropped\n", frame->id - fe->last_id - 1);
   }
   fe->last_id = frame->id;
+  frame->id = 0;
   release(&frame->mutex);
 }
 

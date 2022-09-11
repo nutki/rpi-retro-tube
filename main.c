@@ -388,6 +388,7 @@ bool retro_environment(unsigned int cmd, void *data) {
 } 
 int dry_run;
 struct video_frame *last_frame;
+int frame_cnt = 0;
 uint8_t *shared_mem;
 void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_t pitch) {
     static int frame = 0;
@@ -398,6 +399,17 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
         return;
     }
     acquire(&last_frame->mutex);
+    int t;
+    for (t = 0; last_frame->id && t < 25; t++) {
+        release(&last_frame->mutex);
+        usleep(1000);
+        acquire(&last_frame->mutex);
+    }
+    if (last_frame->id) {
+        rt_log("frame dropped\n");
+    } else if (t) {
+//        rt_log("frame would be dropped, waited %dms\n", t);
+    }
     last_frame->data = data;
     last_frame->w = w;
     last_frame->h = h;
@@ -405,7 +417,7 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     last_frame->aspect = rsavi.geometry.aspect_ratio;
     last_frame->fmt = pixel_format;
     last_frame->time_us = (int)(1000000/(rsavi.timing.fps ? rsavi.timing.fps : 1));
-    last_frame->id++;
+    last_frame->id = ++frame_cnt;
     release(&last_frame->mutex);
     memcpy(shared_mem + 64, data, h * pitch);
 }
@@ -580,7 +592,7 @@ void load_state_1(const char *name) {
         last_frame->aspect = game_state.header.aspect;
         last_frame->fmt = game_state.header.fmt;
         last_frame->time_us = 1000000;
-        last_frame->id++;
+        last_frame->id = ++frame_cnt;
         memcpy(shared_mem + 64, last_frame->data, last_frame->h * last_frame->pitch);
         release(&last_frame->mutex);
     } else {
