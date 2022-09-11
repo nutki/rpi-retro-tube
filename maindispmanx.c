@@ -181,7 +181,7 @@ void dispmanx_update_frame(int idx, struct video_frame *frame) {
   struct frame_element *fe = &frame_elements[idx];
   acquire(&frame->mutex);
   if (frame->id == 0) {
-    rt_log("frame dupped\n");
+//    rt_log("frame dupped\n");
     release(&frame->mutex);
     return;
   }
