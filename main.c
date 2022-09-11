@@ -450,16 +450,16 @@ int16_t retro_input_state(unsigned int port, unsigned int device, unsigned int i
     if (device == RETRO_DEVICE_KEYBOARD) {
         return (keyboardstate[id >> 3] >> (id & 7)) & 1;
     }
-    if (device == RETRO_DEVICE_MOUSE) {
-        return 0;
-    }
-    if (port < MAX_PORTS) {
-        int16_t *port_state = gamepad_state[port];
-        if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return port_state[JOYPAD_BUTTONS];
+    if (port >= MAX_PORTS) return 0;
+    int16_t *port_state = gamepad_state[port];
+    if (device == RETRO_DEVICE_ANALOG) {
         if (id == RETRO_DEVICE_ID_ANALOG_X && index == RETRO_DEVICE_INDEX_ANALOG_LEFT) return port_state[JOYPAD_LEFT_X];
         if (id == RETRO_DEVICE_ID_ANALOG_Y && index == RETRO_DEVICE_INDEX_ANALOG_LEFT) return port_state[JOYPAD_LEFT_Y];
         if (id == RETRO_DEVICE_ID_ANALOG_X && index == RETRO_DEVICE_INDEX_ANALOG_RIGHT) return port_state[JOYPAD_RIGHT_X];
         if (id == RETRO_DEVICE_ID_ANALOG_Y && index == RETRO_DEVICE_INDEX_ANALOG_RIGHT) return port_state[JOYPAD_RIGHT_Y];
+    }
+    if (device == RETRO_DEVICE_JOYPAD || (device == RETRO_DEVICE_ANALOG && id == RETRO_DEVICE_INDEX_ANALOG_BUTTON)) {
+        if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return port_state[JOYPAD_BUTTONS];
         return port_state[JOYPAD_BUTTONS] & (1 << id) ? 1 : 0;
     }
     return 0;
