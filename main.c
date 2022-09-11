@@ -32,7 +32,8 @@ void retro_log(enum retro_log_level level, const char *fmt, ...) {
 
 #include <alsa/asoundlib.h>
 snd_pcm_t *alsa;
- 
+int audio_buffer_level = 0;
+int audio_init = 0;
 void alsa_init(int fq) {
     int err;
     if ((err = snd_pcm_open(&alsa, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
@@ -45,11 +46,13 @@ void alsa_init(int fq) {
                       2,
                       fq,
                       1,
-                      200000)) < 0) {   /* 0.2sec */
+                      50000)) < 0) {   /* 0.05sec */
         printf("Playback open error: %s\n", snd_strerror(err));
         exit(EXIT_FAILURE);
-    } 
+    }
+    audio_init = 1;
 }
+uint32_t tmp_audio_buffer[4096];
 void alsa_write(const int16_t *buffer, int len) {
 //    snd_pcm_prepare(alsa);
     snd_pcm_sframes_t f1 = -1,f2=-1;
@@ -60,8 +63,19 @@ void alsa_write(const int16_t *buffer, int len) {
     int e = snd_pcm_avail_delay(alsa, &f1, &f2);
     if (e == -32) {
         snd_pcm_prepare(alsa);
+        e = snd_pcm_avail_delay(alsa, &f1, &f2);
+        audio_init = 1;
     }
-    //rt_log("AUDIO BUFFER level %li, %li (%li) %d\n", f1, f2, f1+f2, e);
+    if (!e && f1 + f2) {
+        audio_buffer_level = 100 * f2 / (f1 + f2);
+    }
+//    rt_log("AUDIO BUFFER level %li, %li (%li) %d %d +%d\n", f1, f2, f1+f2, e, audio_buffer_level, len);
+    int data_diff = f1 - len;
+    if (audio_init) {
+//        snd_pcm_writei(alsa, tmp_audio_buffer, data_diff);
+        data_diff = 0;
+        audio_init = 0;
+    }
     snd_pcm_sframes_t frames = snd_pcm_writei(alsa, buffer, len);
         if (frames < 0) {
             printf("snd_pcm_writei failed: %s %d %li\n", snd_strerror(frames), len, frames);
