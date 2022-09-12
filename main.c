@@ -64,16 +64,15 @@ void alsa_write(const int16_t *buffer, int len) {
     if (e == -32) {
         snd_pcm_prepare(alsa);
         e = snd_pcm_avail_delay(alsa, &f1, &f2);
+        rt_log("audio reset\n");
         audio_init = 1;
     }
     if (!e && f1 + f2) {
         audio_buffer_level = 100 * f2 / (f1 + f2);
     }
 //    rt_log("AUDIO BUFFER level %li, %li (%li) %d %d +%d\n", f1, f2, f1+f2, e, audio_buffer_level, len);
-    int data_diff = f1 - len;
     if (audio_init) {
-//        snd_pcm_writei(alsa, tmp_audio_buffer, data_diff);
-        data_diff = 0;
+//        snd_pcm_writei(alsa, tmp_audio_buffer, f1 - len);
         audio_init = 0;
     }
     snd_pcm_sframes_t frames = snd_pcm_writei(alsa, buffer, len);
