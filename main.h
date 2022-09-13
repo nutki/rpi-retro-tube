@@ -1,6 +1,8 @@
 #ifndef MAIN_H
 #define MAIN_H
 #include <stdint.h>
+#include <stdatomic.h>
+
 #include "libretro.h"
 enum rt_controls {
     JOYPAD_BUTTONS = 0,
@@ -18,7 +20,6 @@ enum rt_controls {
     POINTER_PRESSED = 11, // reuse 0?
     POINTER_COUNT = 12, // what is this?
 };
-
 
 enum rt_message_type {
     LOAD_GAME = 1, // + path
@@ -39,6 +40,15 @@ enum rt_message_type {
     OPTION_DESC = 1,
 };
 
+struct video_frame {
+    int w, h, pitch, fmt;
+    float aspect;
+    void *data;
+    int time_us;
+    atomic_flag mutex;
+    int id;
+};
+
 struct message_keyboard_data {
         int type;
         uint8_t data[(RETROK_LAST + 7) >> 3];
@@ -54,4 +64,12 @@ struct message_keyboard_data {
         int zoom;
     };
 
+#define MAX_PORTS 4
+struct shared_memory {
+    uint8_t frame_data[720*578*4];
+    struct video_frame frame;
+    uint8_t keyboard_state[(RETROK_LAST + 7) >> 3];
+    int16_t joypad_state[MAX_PORTS][CONTROLS_MAX];
+};
+#define SHARED_MEM_SIZE (sizeof(struct shared_memory))
 #endif

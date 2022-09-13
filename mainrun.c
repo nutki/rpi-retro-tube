@@ -12,11 +12,10 @@
 #include "maindispmanx.h"
 #include "mainsdtvmode.h"
 
-#define SHARED_MEM_SIZE (4 * 1024 * 1024)
 struct core_worker {
     int comm_socket;
     int worker_pid;
-    char *memory;
+    struct shared_memory *memory;
 };
 
 
@@ -63,17 +62,12 @@ void core_message(struct core_worker *core, int message) {
     write(core->comm_socket, &message, sizeof(message));
 }
 void core_message_keyboard_data(struct core_worker *core, uint8_t *data) {
-    struct message_keyboard_data message = { KEYBOARD_DATA };
-    if (data) memcpy(message.data, data, sizeof(message.data));
-    else memset(message.data, 0, sizeof(message.data));
-    write(core->comm_socket, &message, sizeof(message));
+    if (data) memcpy(core->memory->keyboard_state, data, sizeof(core->memory->keyboard_state));
+    else memset(core->memory->keyboard_state, 0, sizeof(core->memory->keyboard_state));
 }
 void core_message_input_data(struct core_worker *core, int port, int16_t *data) {
-    struct message_input_data message = { INPUT_DATA };
-    message.port = port;
-    if (data) memcpy(message.data, data, sizeof(message.data));
-    else memset(message.data, 0, sizeof(message.data));
-    write(core->comm_socket, &message, sizeof(message));
+    if (data) memcpy(core->memory->joypad_state[port], data, sizeof(core->memory->joypad_state[port]));
+    else memset(core->memory->joypad_state[port], 0, sizeof(core->memory->joypad_state[port]));
 }
 void core_input_focus(struct core_worker *core, int on) {
     core_message_input_data(core, 0, on ? get_gamepad_state(0) : 0);
@@ -187,7 +181,8 @@ int main() {
             if (r&16 && c_focus) core_message_keyboard_data(c_focus, get_keyboard_state());
         }
         for (int i = 0; i < num_workers; i++) if (workers[i]->memory) {
-            struct video_frame *last_frame = (struct video_frame *)(workers[i]->memory);
+            struct video_frame *last_frame = &workers[i]->memory->frame;
+            last_frame->data = &workers[i]->memory->frame_data;
             if (last_frame->fmt) dispmanx_update_frame(i, last_frame);
         }
         dispmanx_show();

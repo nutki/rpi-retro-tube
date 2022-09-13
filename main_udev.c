@@ -64,7 +64,6 @@ static const char *control_names[32] = {
 };
 #define DIGITAL_DEAD_ZONE 2000
 
-#define MAX_PORTS 4
 uint8_t keyboardstate[(RETROK_LAST + 7) >> 3];
 int16_t joy_state[CONTROLS_MAX];
 int mode_state;

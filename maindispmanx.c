@@ -215,7 +215,7 @@ void dispmanx_update_frame(int idx, struct video_frame *frame) {
   }
   VC_RECT_T bmpRect;
   vc_dispmanx_rect_set(&bmpRect, 0, 0, pitch_w, frame->h);
-    vc_dispmanx_resource_write_data(fe->resource, pixel_format_to_mode(fe->mode), frame->pitch, (char *)frame + 64, &bmpRect);
+  vc_dispmanx_resource_write_data(fe->resource, pixel_format_to_mode(fe->mode), frame->pitch, frame->data, &bmpRect);
   if (fe->last_id + 1 != frame->id) {
     rt_log("%d frame(s) dropped\n", frame->id - fe->last_id - 1);
   }

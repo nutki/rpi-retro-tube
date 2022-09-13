@@ -88,11 +88,6 @@ enum retro_pixel_format pixel_format;
 struct retro_system_av_info rsavi;
 retro_keyboard_event_t retro_keyboard_event = 0;
 uint8_t keyboardstate[RETROK_LAST];
-#define MAX_PORTS 4
-int16_t gamepad_state[MAX_PORTS][CONTROLS_MAX];
-
-
-
 
 struct core_options {
     char *key;
@@ -402,7 +397,7 @@ bool retro_environment(unsigned int cmd, void *data) {
 int dry_run;
 struct video_frame *last_frame;
 int frame_cnt = 0;
-uint8_t *shared_mem;
+struct shared_memory *shared_mem;
 void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_t pitch) {
     static int frame = 0;
     if (dry_run) return;
@@ -423,7 +418,7 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     } else if (t) {
 //        rt_log("frame would be dropped, waited %dms\n", t);
     }
-    last_frame->data = data;
+    last_frame->data = shared_mem->frame_data;
     last_frame->w = w;
     last_frame->h = h;
     last_frame->pitch = pitch;
@@ -432,7 +427,7 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     last_frame->time_us = (int)(1000000/(rsavi.timing.fps ? rsavi.timing.fps : 1));
     last_frame->id = ++frame_cnt;
     release(&last_frame->mutex);
-    memcpy(shared_mem + 64, data, h * pitch);
+    memcpy(&shared_mem->frame_data, data, h * pitch);
 }
 #define MAX_AUDIO_SAMPLES 1000
 int16_t audiobuf[MAX_AUDIO_SAMPLES * 2];
@@ -461,10 +456,10 @@ void retro_input_poll(void) {
 int16_t retro_input_state(unsigned int port, unsigned int device, unsigned int index, unsigned int id) {
 //    rt_log("INP: get state %d/%d/%d/%d\n", port, device, index, id);
     if (device == RETRO_DEVICE_KEYBOARD) {
-        return (keyboardstate[id >> 3] >> (id & 7)) & 1;
+        return (shared_mem->keyboard_state[id >> 3] >> (id & 7)) & 1;
     }
     if (port >= MAX_PORTS) return 0;
-    int16_t *port_state = gamepad_state[port];
+    int16_t *port_state = shared_mem->joypad_state[port];
     if (device == RETRO_DEVICE_ANALOG) {
         if (id == RETRO_DEVICE_ID_ANALOG_X && index == RETRO_DEVICE_INDEX_ANALOG_LEFT) return port_state[JOYPAD_LEFT_X];
         if (id == RETRO_DEVICE_ID_ANALOG_Y && index == RETRO_DEVICE_INDEX_ANALOG_LEFT) return port_state[JOYPAD_LEFT_Y];
@@ -606,7 +601,7 @@ void load_state_1(const char *name) {
         last_frame->fmt = game_state.header.fmt;
         last_frame->time_us = 1000000;
         last_frame->id = ++frame_cnt;
-        memcpy(shared_mem + 64, last_frame->data, last_frame->h * last_frame->pitch);
+        memcpy(&shared_mem->frame_data, last_frame->data, last_frame->h * last_frame->pitch);
         release(&last_frame->mutex);
     } else {
         lseek(fd, game_state.header.screen_data_size, SEEK_CUR);
@@ -669,29 +664,26 @@ void setnonblocking(int sock) {
     }
 }
 static int done = 0;
+void emit_key_events() {
+    if (!retro_keyboard_event) return;
+    int len = sizeof(shared_mem->keyboard_state);
+    for (int i = 0; i < len; i++) if (keyboardstate[i] != shared_mem->keyboard_state[i]) {
+        for (int j = 0; j < 8; j++) {
+            int id = i * 8 + j;
+            if ((keyboardstate[i] ^ shared_mem->keyboard_state[i]) & (1<<j)) {
+                retro_keyboard_event(shared_mem->keyboard_state[i] & (1<<j) ? 1 : 0, id, 0, 0);
+            }
+        }
+        keyboardstate[i] = shared_mem->keyboard_state[i];
+    }
+}
 void read_comm() {
     if (comm_socket == -1) return;
     setnonblocking(comm_socket);
     char buf[4096];
     while(read(comm_socket, buf, sizeof(buf)) > 0) {
         int msg_type = *(int*)buf;
-        if (msg_type == KEYBOARD_DATA) {
-            struct message_keyboard_data *k = (void*)buf;
-            int len = sizeof(k->data);
-            for (int i = 0; i < len; i++) if (keyboardstate[i] != k->data[i]) {
-                if (retro_keyboard_event) for (int j = 0; j < 8; j++) {
-                    int id = i * 8 + j;
-                    if ((keyboardstate[i] ^ k->data[i]) & (1<<j)) {
-                        retro_keyboard_event(k->data[i] & (1<<j) ? 1 : 0, id, 0, 0);
-                    }
-                }
-                keyboardstate[i] = k->data[i];
-            }
-        } else if (msg_type == INPUT_DATA) {
-            struct message_input_data *k = (void*)buf;
-//            rt_log("BTN %04X\n", k->data[JOYPAD_BUTTONS]);
-            if (k->port < MAX_PORTS) memcpy(gamepad_state[k->port], k->data, sizeof(k->data));
-        } else if (msg_type == PAUSE_GAME) {
+        if (msg_type == PAUSE_GAME) {
             play_state = 0;
         } else if (msg_type == START_GAME) {
             play_state = 1;
@@ -703,7 +695,6 @@ void read_comm() {
     };
 }
 #include <sys/mman.h>
-#define SHARED_MEM_SIZE (4 * 1024 * 1024)
 #pragma GCC optimize ("O0")
 int main(int argc, char** argv) {
     const char *cname = 0, *path = 0;
@@ -716,7 +707,7 @@ int main(int argc, char** argv) {
         int mem_fd = atoi(env_mmapfd);
         shared_mem = mmap(0, SHARED_MEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, mem_fd, 0);
         if (!shared_mem) return 0;
-        last_frame = (struct video_frame *)shared_mem;
+        last_frame = &shared_mem->frame;
         release(&last_frame->mutex);
         rt_log("shared mem says: %s\n", shared_mem);
     }
@@ -861,6 +852,7 @@ int main(int argc, char** argv) {
         read_comm();
         int64_t s = timestamp();
         if (play_state) {
+            emit_key_events();
             core.retro_run();
             frames++;
         }
