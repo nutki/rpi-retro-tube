@@ -133,7 +133,7 @@ void term(int signum) {
     rt_log("term signal\n");
     done = 1;
 }
-int current_worker_idx = 0;
+int current_content_idx = 0;
 int8_t gfxres[16];
 int alloc_gfx_id() {
     for (int i = 0; i < sizeof(gfxres); i++) {
@@ -149,7 +149,7 @@ void free_gfx_id(int id) {
 }
 void update_workers() {
     for (int i = 0; i < MAX_CONTENT && list[i].core; i++) {
-        int diff = i - current_worker_idx;
+        int diff = i - current_content_idx;
         if (diff >= -1 && diff <= 3) {
             if (!list[i].worker) {
                 list[i].worker = core_start(list[i].core, list[i].filename);
@@ -174,7 +174,7 @@ int main() {
     input_handler_init();
     dispmanx_init();
     rt_log("udev input initialized\n");
-    int num_workers = load_content_queue();
+    int num_content = load_content_queue();
     update_workers();
     rt_log("cores spawned\n");
     core_message(list[0].worker, START_GAME);
@@ -183,12 +183,12 @@ int main() {
         int ui_controls = get_ui_controls(r);
 //        if (ui_controls) printf("%04x\n", ui_controls);
         if (ui_controls & ((1 << RETRO_DEVICE_ID_JOYPAD_LEFT) | (1 << RETRO_DEVICE_ID_JOYPAD_RIGHT))) {
-            current_worker_idx = ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_LEFT) ? current_worker_idx + num_workers - 1 : current_worker_idx + 1;
-            current_worker_idx %= num_workers;
+            current_content_idx = ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_LEFT) ? current_content_idx + num_content - 1 : current_content_idx + 1;
+            current_content_idx %= num_content;
             update_workers();
-            for (int i = 0; i < num_workers; i++) if (list[i].worker) {
-                core_message(list[i].worker, i == current_worker_idx ? START_GAME : PAUSE_GAME);
-                dispmanx_set_pos(list[i].gfx_id, -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
+            for (int i = 0; i < num_content; i++) if (list[i].worker) {
+                core_message(list[i].worker, i == current_content_idx ? START_GAME : PAUSE_GAME);
+                dispmanx_set_pos(list[i].gfx_id, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80);
             }
         }
         if (ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_A)) {
@@ -197,33 +197,33 @@ int main() {
         }
         if (ui_controls & UI_FOCUS_CHANGE) {
             if (!ui_focus) {
-                for (int i = 0; i < num_workers; i++) if (list[i].worker) {
-                    core_input_focus(list[i].worker, i == current_worker_idx);
-                    dispmanx_set_pos(list[i].gfx_id, i == current_worker_idx ? 0 : 800, 0, 0x200);
+                for (int i = 0; i < num_content; i++) if (list[i].worker) {
+                    core_input_focus(list[i].worker, i == current_content_idx);
+                    dispmanx_set_pos(list[i].gfx_id, i == current_content_idx ? 0 : 800, 0, 0x200);
                 }
             } else {
-                for (int i = 0; i < num_workers; i++) if (list[i].worker) {
+                for (int i = 0; i < num_content; i++) if (list[i].worker) {
                     core_input_focus(list[i].worker, 0);
-                    dispmanx_set_pos(list[i].gfx_id, -180 + (i - current_worker_idx) * 250, 0, i == current_worker_idx ? 0xC0 : 0x80);
+                    dispmanx_set_pos(list[i].gfx_id, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80);
                 }
             }
         }
         if ((r & 31) && !ui_focus) {
-            struct core_worker *c_focus = list[current_worker_idx].worker;
+            struct core_worker *c_focus = list[current_content_idx].worker;
             if (r&1 && c_focus) core_message_input_data(c_focus, 0, get_gamepad_state(0));
             if (r&2 && c_focus) core_message_input_data(c_focus, 1, get_gamepad_state(1));
             if (r&4 && c_focus) core_message_input_data(c_focus, 2, get_gamepad_state(2));
             if (r&8 && c_focus) core_message_input_data(c_focus, 3, get_gamepad_state(3));
             if (r&16 && c_focus) core_message_keyboard_data(c_focus, get_keyboard_state());
         }
-        for (int i = 0; i < num_workers; i++) if (list[i].worker && list[i].worker->memory) {
+        for (int i = 0; i < num_content; i++) if (list[i].worker && list[i].worker->memory) {
             struct video_frame *last_frame = &list[i].worker->memory->frame;
             last_frame->data = &list[i].worker->memory->frame_data;
             if (last_frame->fmt) dispmanx_update_frame(list[i].gfx_id, last_frame);
         }
         dispmanx_show();
     }
-    for (int i = 0; i < num_workers; i++) if (list[i].worker) {
+    for (int i = 0; i < num_content; i++) if (list[i].worker) {
         core_message(list[i].worker, QUIT_CORE);
     }
     input_handler_disconnect_bt();
