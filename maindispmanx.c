@@ -66,7 +66,7 @@ int pixel_format_to_size(enum retro_pixel_format fmt) {
 
 void dispmanx_set_pos(int idx, int dx, int dy, int zoom) {
   struct frame_element *fe = &frame_elements[idx];
-  fe->dst_rect_dirty = fe->zoom != zoom || fe->x != dx || fe->y != dy;
+  fe->dst_rect_dirty |= fe->zoom != zoom || fe->x != dx || fe->y != dy;
   fe->zoom = zoom;
   fe->x = dx;
   fe->y = dy;
@@ -135,7 +135,7 @@ void dispmanx_show() {
       fe->element = vc_dispmanx_element_add(update, display, layer, &dstRect, fe->resource, &srcRect, DISPMANX_PROTECTION_NONE,
                                     NULL, NULL, DISPMANX_NO_ROTATE);
     }
-    rt_log("Resizing canvas %dx%d => %d(%d)x%d %f pixel aspect = %f frame time = %d (%.2ffps)\n", fe->w, fe->h, w, target_w, h,
+    rt_log("Resizing canvas %d %dx%d => %d(%d)x%d %f pixel aspect = %f frame time = %d (%.2ffps)\n", i, fe->w, fe->h, w, target_w, h,
            aspect, aspect * h / w, fe->time_us, 1000000./fe->time_us);
     fe->dst_rect_dirty = fe->src_rect_dirty = 0;
   }

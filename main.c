@@ -709,7 +709,6 @@ int main(int argc, char** argv) {
         if (!shared_mem) return 0;
         last_frame = &shared_mem->frame;
         release(&last_frame->mutex);
-        rt_log("shared mem says: %s\n", shared_mem);
     }
     char prname[16] = {0};
     snprintf(prname, 16, "rt: %s", argv[1]);
