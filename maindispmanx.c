@@ -8,9 +8,6 @@
 #include "mainpal60.h"
 #include <stdatomic.h>
 
-#define acquire(m) while (atomic_flag_test_and_set(m))
-#define release(m) atomic_flag_clear(m)
-
 #define ELEMENT_CHANGE_LAYER (1 << 0)
 #define ELEMENT_CHANGE_OPACITY (1 << 1)
 #define ELEMENT_CHANGE_DEST_RECT (1 << 2)
@@ -30,7 +27,6 @@ static struct frame_element {
   int dst_rect_dirty, src_rect_dirty;
   int time_us;
   int framerate_dirty;
-  int last_id;
 } frame_elements[MAX_ELEMENTS];
 
 static int screenX, screenY, screenXoffset;
@@ -179,12 +175,6 @@ void dispmanx_show() {
 }
 void dispmanx_update_frame(int idx, struct video_frame *frame) {
   struct frame_element *fe = &frame_elements[idx];
-  acquire(&frame->mutex);
-  if (frame->id == 0) {
-//    rt_log("frame dupped\n");
-    release(&frame->mutex);
-    return;
-  }
   int pitch_w = frame->pitch / pixel_format_to_size(frame->fmt);
   if (frame->pitch != fe->pitch || frame->w != fe->w || frame->h != fe->h || frame->fmt != fe->mode) {
     fe->src_rect_dirty = 1;
@@ -216,12 +206,6 @@ void dispmanx_update_frame(int idx, struct video_frame *frame) {
   VC_RECT_T bmpRect;
   vc_dispmanx_rect_set(&bmpRect, 0, 0, pitch_w, frame->h);
   vc_dispmanx_resource_write_data(fe->resource, pixel_format_to_mode(fe->mode), frame->pitch, frame->data, &bmpRect);
-  if (fe->last_id + 1 != frame->id) {
-    rt_log("%d frame(s) dropped\n", frame->id - fe->last_id - 1);
-  }
-  fe->last_id = frame->id;
-  frame->id = 0;
-  release(&frame->mutex);
 }
 
 int sdtv_aspect = 0;
