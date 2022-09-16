@@ -67,6 +67,8 @@ void dispmanx_set_pos(struct frame_element *fe, int dx, int dy, int zoom) {
   fe->x = dx;
   fe->y = dy;
 }
+void dispmanx_update_callback(unsigned int x, void *y) {
+}
 static int apply_zoom(struct frame_element *fe, int v) {
   int zoom = fe->zoom;
   if (fe->h > (fe->time_us < 19000 ? 240 : 288)) zoom /= 2;
@@ -117,7 +119,7 @@ void dispmanx_show() {
   }
   if (!fe->used) continue; 
   if (fe->used == 2) {
-    vc_dispmanx_element_remove(update, fe->element);
+    if (fe->element) vc_dispmanx_element_remove(update, fe->element);
     fe->element = 0;
     vc_dispmanx_resource_delete(fe->resource);
     fe->resource = 0;
@@ -130,6 +132,7 @@ void dispmanx_show() {
     vc_dispmanx_rect_set(&dstRect, (screenX - apply_zoom(fe, target_w)) / 2 + fe->x,
                          (screenY - apply_zoom(fe, h)) / 2 + fe->y, apply_zoom(fe, target_w), apply_zoom(fe, h));
     if (fe->element) {
+      if (fe->src_rect_dirty)
     vc_dispmanx_element_change_source(update, fe->element, fe->resource);
     vc_dispmanx_element_change_attributes(update, fe->element, ELEMENT_CHANGE_SRC_RECT | ELEMENT_CHANGE_DEST_RECT, 0, 0,
                                           &dstRect, &srcRect, 0, 0);
@@ -138,12 +141,13 @@ void dispmanx_show() {
       fe->element = vc_dispmanx_element_add(update, display, layer, &dstRect, fe->resource, &srcRect, DISPMANX_PROTECTION_NONE,
                                     NULL, NULL, DISPMANX_NO_ROTATE);
     }
-    rt_log("Resizing canvas %d %dx%d => %d(%d)x%d %f pixel aspect = %f frame time = %d (%.2ffps)\n", i, fe->w, fe->h, w, target_w, h,
-           aspect, aspect * h / w, fe->time_us, 1000000./fe->time_us);
+//    rt_log("Resizing canvas %d %dx%d => %d(%d)x%d %f pixel aspect = %f frame time = %d (%.2ffps)\n", i, fe->w, fe->h, w, target_w, h,
+//           aspect, aspect * h / w, fe->time_us, 1000000./fe->time_us);
     fe->dst_rect_dirty = fe->src_rect_dirty = 0;
   }
   }
-  vc_dispmanx_update_submit_sync(update);
+//  vc_dispmanx_update_submit_sync(update);
+  vc_dispmanx_update_submit(update, dispmanx_update_callback, 0);
   for (int i = 0; i < MAX_ELEMENTS; i++) {
   struct frame_element *fe = &frame_elements[i];
   if (fe->old_resource) {
