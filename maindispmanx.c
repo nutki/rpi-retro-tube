@@ -27,6 +27,7 @@ static struct frame_element {
   int dst_rect_dirty, src_rect_dirty;
   int time_us;
   int framerate_dirty;
+  int used;
 } frame_elements[MAX_ELEMENTS];
 
 static int screenX, screenY, screenXoffset;
@@ -60,8 +61,7 @@ int pixel_format_to_size(enum retro_pixel_format fmt) {
   return 0;
 }
 
-void dispmanx_set_pos(int idx, int dx, int dy, int zoom) {
-  struct frame_element *fe = &frame_elements[idx];
+void dispmanx_set_pos(struct frame_element *fe, int dx, int dy, int zoom) {
   fe->dst_rect_dirty |= fe->zoom != zoom || fe->x != dx || fe->y != dy;
   fe->zoom = zoom;
   fe->x = dx;
@@ -115,8 +115,15 @@ void dispmanx_show() {
   if (!fe->x && !fe->y && fe->zoom == 0x200) {
     fullscreen_element = fe;
   }
-  if (!fe->h) continue; 
-  if (fe->src_rect_dirty || fe->dst_rect_dirty || needs_reinit) {
+  if (!fe->used) continue; 
+  if (fe->used == 2) {
+    vc_dispmanx_element_remove(update, fe->element);
+    fe->element = 0;
+    vc_dispmanx_resource_delete(fe->resource);
+    fe->resource = 0;
+    fe->used = 0;
+    fe->dst_rect_dirty = fe->src_rect_dirty = 0;
+  } else if (fe->src_rect_dirty || fe->dst_rect_dirty || needs_reinit) {
     VC_RECT_T srcRect, dstRect;
     vc_dispmanx_rect_set(&srcRect, 0, 0, w << 16, h << 16);
     int target_w = (w * screenX * 3 / 4 / screenY) * (aspect * h / w);
@@ -173,10 +180,9 @@ void dispmanx_show() {
   pthread_cond_timedwait(&vsync_cond, &vsync_mutex, &ts);
   pthread_mutex_unlock(&vsync_mutex);
 }
-void dispmanx_update_frame(int idx, struct video_frame *frame) {
-  struct frame_element *fe = &frame_elements[idx];
+void dispmanx_update_frame(struct frame_element *fe, struct video_frame *frame) {
   int pitch_w = frame->pitch / pixel_format_to_size(frame->fmt);
-  if (frame->pitch != fe->pitch || frame->w != fe->w || frame->h != fe->h || frame->fmt != fe->mode) {
+  if (frame->pitch != fe->pitch || frame->w != fe->w || frame->h != fe->h || frame->fmt != fe->mode || !fe->resource) {
     fe->src_rect_dirty = 1;
     if (fe->resource) {
       assert(fe->old_resource == 0);
@@ -319,4 +325,18 @@ void dispmanx_close() {
   }
   vc_dispmanx_vsync_callback(display, NULL, NULL);
   sdtv_set_mode(original_mode);
+}
+
+struct frame_element *dispmanx_new_element(void) {
+  for (int i = 0; i < MAX_ELEMENTS; i++) {
+    if (!frame_elements[i].used) {
+      frame_elements[i].used = 1;
+      return &frame_elements[i];
+    }
+  }
+  return 0;
+}
+
+void dispmanx_free_element(struct frame_element *fe) {
+  fe->used = 2;
 }

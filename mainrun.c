@@ -111,7 +111,7 @@ int get_ui_controls(int r) {
 struct content_list {
     char *core, *filename;
     struct core_worker *worker;
-    int gfx_id;
+    struct frame_element *gfx_id;
 } list[MAX_CONTENT];
 int load_content_queue() {
     char line[FILENAME_MAX * 2];
@@ -137,32 +137,17 @@ void term(int signum) {
     done = 1;
 }
 int current_content_idx = 0;
-int8_t gfxres[16];
-int alloc_gfx_id() {
-    for (int i = 0; i < sizeof(gfxres); i++) {
-        if (!gfxres[i]) {
-            gfxres[i] = 1;
-            return i;
-        }
-    }
-    return 0;
-}
-void free_gfx_id(int id) {
-    if (id) gfxres[id] = 0;
-}
 void update_workers() {
     for (int i = 0; i < MAX_CONTENT && list[i].core; i++) {
         int diff = i - current_content_idx;
         if (diff >= -1 && diff <= 3) {
             if (!list[i].worker) {
                 list[i].worker = core_start(list[i].core, list[i].filename);
-                list[i].gfx_id = alloc_gfx_id();
-                dispmanx_set_pos(list[i].gfx_id, -180 + diff * 250, 0, diff ? 0x80 : 0xC0);
+                list[i].gfx_id = dispmanx_new_element();
             }
         } else {
             if (list[i].worker) {
-                free_gfx_id(list[i].gfx_id);
-                dispmanx_set_pos(list[i].gfx_id, 800, 0, 0x200);
+                dispmanx_free_element(list[i].gfx_id);
                 core_stop(list[i].worker);
                 list[i].worker = 0;
                 list[i].gfx_id = 0;
