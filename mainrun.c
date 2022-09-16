@@ -19,6 +19,37 @@ struct core_worker {
     struct shared_memory *memory;
 };
 
+struct animation {
+    int src_x, src_y, src_zoom;
+    int dst_x, dst_y, dst_zoom;
+    int frame, num_frames;
+};
+
+void animate_init(struct animation *a) {
+    a->frame = a->num_frames = 0;
+}
+void animate_set_pos(struct animation *a, int x, int y, int zoom) {
+    a->src_x = a->dst_x;
+    a->src_y = a->dst_y;
+    a->src_zoom = a->dst_zoom;
+    a->dst_x = x;
+    a->dst_y = y;
+    a->dst_zoom = zoom;
+    a->frame = a->num_frames ? 0 : 15;
+    a->num_frames = 16;
+}
+int animate_linear(int src, int dst, int t, int len) {
+    return src + (dst - src) * t / (len - 1);
+}
+void animate_next_frame(struct animation *a, struct frame_element *g) {
+    if (a->frame == a->num_frames) return;
+    int x = animate_linear(a->src_x, a->dst_x, a->frame, a->num_frames);
+    int y = animate_linear(a->src_y, a->dst_y, a->frame, a->num_frames);
+    int zoom = animate_linear(a->src_zoom, a->dst_zoom, a->frame, a->num_frames);
+    dispmanx_set_pos(g, x, y, zoom);
+    a->frame++;
+}
+
 #define acquire(m) while (atomic_flag_test_and_set(m))
 #define release(m) atomic_flag_clear(m)
 
@@ -112,6 +143,7 @@ struct content_list {
     char *core, *filename;
     struct core_worker *worker;
     struct frame_element *gfx_id;
+    struct animation anim;
 } list[MAX_CONTENT];
 int load_content_queue() {
     char line[FILENAME_MAX * 2];
@@ -144,6 +176,8 @@ void update_workers() {
             if (!list[i].worker) {
                 list[i].worker = core_start(list[i].core, list[i].filename);
                 list[i].gfx_id = dispmanx_new_element();
+                animate_init(&list[i].anim);
+                animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80);
             }
         } else {
             if (list[i].worker) {
@@ -176,7 +210,7 @@ int main() {
             update_workers();
             for (int i = 0; i < num_content; i++) if (list[i].worker) {
                 core_message(list[i].worker, i == current_content_idx ? START_GAME : PAUSE_GAME);
-                dispmanx_set_pos(list[i].gfx_id, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80);
+                animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80);
             }
         }
         if (ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_A)) {
@@ -187,12 +221,12 @@ int main() {
             if (!ui_focus) {
                 for (int i = 0; i < num_content; i++) if (list[i].worker) {
                     core_input_focus(list[i].worker, i == current_content_idx);
-                    dispmanx_set_pos(list[i].gfx_id, i == current_content_idx ? 0 : 800, 0, 0x200);
+                    animate_set_pos(&list[i].anim, (i - current_content_idx) * 667, 0, i == current_content_idx ? 0x200 : 0x155);
                 }
             } else {
                 for (int i = 0; i < num_content; i++) if (list[i].worker) {
                     core_input_focus(list[i].worker, 0);
-                    dispmanx_set_pos(list[i].gfx_id, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80);
+                    animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80);
                 }
             }
         }
@@ -208,6 +242,7 @@ int main() {
             struct core_worker *worker = list[i].worker;
             struct video_frame *last_frame = &list[i].worker->memory->frame;
             last_frame->data = &list[i].worker->memory->frame_data;
+            animate_next_frame(&list[i].anim, list[i].gfx_id);
             acquire(&last_frame->mutex);
             if (last_frame->id == 0) {
             //    rt_log("frame dupped\n");
