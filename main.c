@@ -398,6 +398,7 @@ int dry_run;
 struct video_frame *last_frame;
 int frame_cnt = 0;
 struct shared_memory *shared_mem;
+int frame_sync;
 void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_t pitch) {
     static int frame = 0;
     if (dry_run) return;
@@ -408,12 +409,12 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     }
     acquire(&last_frame->mutex);
     int t;
-    for (t = 0; last_frame->id && t < 25; t++) {
+    if (frame_sync && last_frame->id) for (t = 0; t < 25; t++) {
         release(&last_frame->mutex);
         usleep(1000);
         acquire(&last_frame->mutex);
     }
-    if (last_frame->id) {
+    if (frame_sync && last_frame->id) {
         rt_log("frame dropped\n");
     } else if (t) {
 //        rt_log("frame would be dropped, waited %dms\n", t);
@@ -689,6 +690,12 @@ void read_comm() {
             play_state = 1;
         } else if (msg_type == QUIT_CORE) {
             done = 1;
+        } else if (msg_type == SYNC_ON) {
+            frame_sync = 1;
+            rt_log("frame sync ON\n");
+        } else if (msg_type == SYNC_OFF) {
+            frame_sync = 0;
+            rt_log("frame sync OFF\n");
         } else {
             rt_log("GOT MESSAGE %d\n", msg_type);
         }

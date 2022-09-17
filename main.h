@@ -35,7 +35,8 @@ enum rt_message_type {
     VIDEO_OUT, // uint32[]
     AUDIO_OUT,
     OPTION_SET, // char*[]
-    VSYNC,
+    SYNC_ON,
+    SYNC_OFF,
 
     OPTION_DESC = 1,
 };

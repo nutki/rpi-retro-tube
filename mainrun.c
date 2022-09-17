@@ -19,34 +19,46 @@ struct core_worker {
     struct shared_memory *memory;
 };
 
+void core_message(struct core_worker *core, int message);
+
 struct animation {
     int src_x, src_y, src_zoom;
     int dst_x, dst_y, dst_zoom;
     int frame, num_frames;
+    int prev_fullscreen, dst_fullscreen;
 };
 
 void animate_init(struct animation *a) {
     a->frame = a->num_frames = 0;
 }
-void animate_set_pos(struct animation *a, int x, int y, int zoom) {
+void animate_set_pos(struct animation *a, int x, int y, int zoom, int fullscreen) {
     a->src_x = a->dst_x;
     a->src_y = a->dst_y;
     a->src_zoom = a->dst_zoom;
     a->dst_x = x;
     a->dst_y = y;
     a->dst_zoom = zoom;
+    a->dst_fullscreen = fullscreen;
     a->frame = a->num_frames ? 0 : 15;
     a->num_frames = 16;
 }
 int animate_linear(int src, int dst, int t, int len) {
     return src + (dst - src) * t / (len - 1);
 }
-void animate_next_frame(struct animation *a, struct frame_element *g) {
+void animate_next_frame(struct animation *a, struct frame_element *g, struct core_worker *core) {
     if (a->frame == a->num_frames) return;
     int x = animate_linear(a->src_x, a->dst_x, a->frame, a->num_frames);
     int y = animate_linear(a->src_y, a->dst_y, a->frame, a->num_frames);
     int zoom = animate_linear(a->src_zoom, a->dst_zoom, a->frame, a->num_frames);
     dispmanx_set_pos(g, x, y, zoom);
+    if (a->frame == a->num_frames - 1 && a->dst_fullscreen && a->prev_fullscreen != a->dst_fullscreen) {
+        core_message(core, SYNC_ON);
+        a->prev_fullscreen = a->dst_fullscreen;
+    }
+    if (a->frame == 1 && !a->dst_fullscreen && a->prev_fullscreen != a->dst_fullscreen) {
+        core_message(core, SYNC_OFF);
+        a->prev_fullscreen = a->dst_fullscreen;
+    }
     a->frame++;
 }
 
@@ -177,7 +189,7 @@ void update_workers() {
                 list[i].worker = core_start(list[i].core, list[i].filename);
                 list[i].gfx_id = dispmanx_new_element();
                 animate_init(&list[i].anim);
-                animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80);
+                animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80, 0);
             }
         } else {
             if (list[i].worker) {
@@ -210,7 +222,7 @@ int main() {
             update_workers();
             for (int i = 0; i < num_content; i++) if (list[i].worker) {
                 core_message(list[i].worker, i == current_content_idx ? START_GAME : PAUSE_GAME);
-                animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80);
+                animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80, 0);
             }
         }
         if (ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_A)) {
@@ -221,12 +233,12 @@ int main() {
             if (!ui_focus) {
                 for (int i = 0; i < num_content; i++) if (list[i].worker) {
                     core_input_focus(list[i].worker, i == current_content_idx);
-                    animate_set_pos(&list[i].anim, (i - current_content_idx) * 667, 0, i == current_content_idx ? 0x200 : 0x155);
+                    animate_set_pos(&list[i].anim, (i - current_content_idx) * 667, 0, i == current_content_idx ? 0x200 : 0x155, i == current_content_idx);
                 }
             } else {
                 for (int i = 0; i < num_content; i++) if (list[i].worker) {
                     core_input_focus(list[i].worker, 0);
-                    animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80);
+                    animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80, 0);
                 }
             }
         }
@@ -242,7 +254,7 @@ int main() {
             struct core_worker *worker = list[i].worker;
             struct video_frame *last_frame = &list[i].worker->memory->frame;
             last_frame->data = &list[i].worker->memory->frame_data;
-            animate_next_frame(&list[i].anim, list[i].gfx_id);
+            animate_next_frame(&list[i].anim, list[i].gfx_id, list[i].worker);
             acquire(&last_frame->mutex);
             if (last_frame->id == 0) {
             //    rt_log("frame dupped\n");
