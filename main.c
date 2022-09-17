@@ -408,8 +408,8 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
         return;
     }
     acquire(&last_frame->mutex);
-    int t;
-    if (frame_sync && last_frame->id) for (t = 0; t < 25; t++) {
+    int t = 0;
+    if (frame_sync) for (t = 0; last_frame->id && t < 25; t++) {
         release(&last_frame->mutex);
         usleep(1000);
         acquire(&last_frame->mutex);
@@ -427,8 +427,8 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     last_frame->fmt = pixel_format;
     last_frame->time_us = (int)(1000000/(rsavi.timing.fps ? rsavi.timing.fps : 1));
     last_frame->id = ++frame_cnt;
-    release(&last_frame->mutex);
     memcpy(&shared_mem->frame_data, data, h * pitch);
+    release(&last_frame->mutex);
 }
 #define MAX_AUDIO_SAMPLES 1000
 int16_t audiobuf[MAX_AUDIO_SAMPLES * 2];
@@ -864,7 +864,7 @@ int main(int argc, char** argv) {
         }
         int64_t frame_time_ms = 1000000 / rsavi.timing.fps;
         int64_t d = timestamp() - s;
-        if (frame_time_ms > d) usleep(frame_time_ms - d);
+        if (frame_time_ms > d && !frame_sync) usleep(frame_time_ms - d);
     }
     rt_log("core run\n");
 
