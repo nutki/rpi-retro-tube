@@ -10,10 +10,10 @@ enum rt_controls {
     JOYPAD_LEFT_Y = 2,
     JOYPAD_RIGHT_X = 3,
     JOYPAD_RIGHT_Y = 4,
-    CONTROLS_MAX = 5,
-    MOUSE_BUTTONS = 5, // reuse 0?
-    MOUSE_X = 6, // reuse 1?
-    MOUSE_Y = 7, // reuse 2?
+    MOUSE_BUTTONS = 5,
+    MOUSE_X = 6,
+    MOUSE_Y = 7,
+    CONTROLS_MAX = 8,
     POINTER_X = 8, // lightpen/pointer
     POINTER_Y = 9, // lightpen/pointer
     LIGHT_BUTTONS = 10, // reuse 0?

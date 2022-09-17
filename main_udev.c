@@ -333,7 +333,7 @@ uint8_t *get_keyboard_state() {
 int16_t *get_gamepad_state(int port) {
   int16_t *res = 0;
   for (int p = 0; p < num_devices; p++) {
-    if (devices[p].type == INPUT_DEVICE_GAMEPAD && (port < 0 || devices[p].port == port)) {
+    if ((devices[p].type == INPUT_DEVICE_GAMEPAD || devices[p].type == INPUT_DEVICE_MOUSE) && (port < 0 || devices[p].port == port)) {
       if (!res)
         res = devices[p].input_state.gamepad_state;
       else {
@@ -341,11 +341,14 @@ int16_t *get_gamepad_state(int port) {
           memcpy(joy_state, res, sizeof(joy_state));
           res = joy_state;
         }
-        joy_state[0] |= devices[p].input_state.gamepad_state[0];
-        for (int i = 1; i < CONTROLS_MAX; i++) {
+        joy_state[JOYPAD_BUTTONS] |= devices[p].input_state.gamepad_state[JOYPAD_BUTTONS];
+        joy_state[MOUSE_BUTTONS] |= devices[p].input_state.gamepad_state[MOUSE_BUTTONS];
+        for (int i = JOYPAD_LEFT_X; i <= JOYPAD_RIGHT_Y; i++) {
           if (abs(devices[p].input_state.gamepad_state[i]) > abs(joy_state[i]))
             joy_state[i] = devices[p].input_state.gamepad_state[i];
         }
+        joy_state[MOUSE_X] += devices[p].input_state.gamepad_state[MOUSE_X];
+        joy_state[MOUSE_Y] += devices[p].input_state.gamepad_state[MOUSE_Y];
       }
     }
   }
@@ -368,6 +371,12 @@ uint32_t poll_devices(void) {
 
     if (input->fd < 0)
       continue;
+
+    if (input->input_state.gamepad_state[MOUSE_X] || input->input_state.gamepad_state[MOUSE_Y]) {
+      input->input_state.gamepad_state[MOUSE_X] = input->input_state.gamepad_state[MOUSE_Y] = 0;
+      if (input->port >= 0)
+        ports_dirty |= 1 << input->port;
+    }
 
     while ((len = read(input->fd, &ev, sizeof(ev))) == sizeof(ev)) {
       if (input->type == INPUT_DEVICE_GAMEPAD) {
@@ -410,6 +419,23 @@ uint32_t poll_devices(void) {
         rt_log("EV_KEY %d %d\n", ev.code, ev.value);
         set_key_value(input->input_state.keyboard_state, keymap[ev.code], ev.value);
         keyboard_dirty = 1;
+      }
+      if (input->type == INPUT_DEVICE_MOUSE) {
+        if (ev.type == EV_KEY) {
+          if (input->port >= 0) ports_dirty |= 1 << input->port;
+          if (ev.code == BTN_LEFT)
+            set_button_value(&input->input_state.gamepad_state[MOUSE_BUTTONS], RETRO_DEVICE_ID_MOUSE_LEFT, ev.value);
+          if (ev.code == BTN_RIGHT)
+            set_button_value(&input->input_state.gamepad_state[MOUSE_BUTTONS], RETRO_DEVICE_ID_MOUSE_RIGHT, ev.value);
+          if (ev.code == BTN_MIDDLE)
+            set_button_value(&input->input_state.gamepad_state[MOUSE_BUTTONS], RETRO_DEVICE_ID_MOUSE_MIDDLE, ev.value);
+          // TODO Mouse wheels
+        }
+        if (ev.type == EV_REL) {
+          if (input->port >= 0) ports_dirty |= 1 << input->port;
+          if (ev.code == REL_X) input->input_state.gamepad_state[MOUSE_X] += ev.value;
+          if (ev.code == REL_Y) input->input_state.gamepad_state[MOUSE_Y] += ev.value;
+        }
       }
     }
     home_state |= input->home_state;

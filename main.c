@@ -471,6 +471,12 @@ int16_t retro_input_state(unsigned int port, unsigned int device, unsigned int i
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return port_state[JOYPAD_BUTTONS];
         return port_state[JOYPAD_BUTTONS] & (1 << id) ? 1 : 0;
     }
+    if (device == RETRO_DEVICE_MOUSE) {
+//        rt_log("query mouse port %d = %d %d %d\n", port, port_state[MOUSE_BUTTONS], port_state[MOUSE_X], port_state[MOUSE_Y]);
+        if (id == RETRO_DEVICE_ID_MOUSE_X) return port_state[MOUSE_X];
+        if (id == RETRO_DEVICE_ID_MOUSE_Y) return port_state[MOUSE_Y];
+        if (id <= RETRO_DEVICE_ID_MOUSE_BUTTON_5) return port_state[MOUSE_BUTTONS] & (1 << id) ? 1 : 0;
+    }
     return 0;
 }
 struct retro_core {
