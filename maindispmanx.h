@@ -5,7 +5,7 @@
 struct frame_element *dispmanx_new_element(void);
 void dispmanx_free_element(struct frame_element *e);
 
-void dispmanx_update_frame(struct frame_element *e, struct video_frame *frame);
+void dispmanx_update_frame(struct frame_element *e, struct video_frame *frame, void *frame_data);
 void dispmanx_show(void);
 void dispmanx_init();
 void dispmanx_close();

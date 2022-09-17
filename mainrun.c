@@ -253,13 +253,12 @@ int main() {
         for (int i = 0; i < num_content; i++) if (list[i].worker && list[i].worker->memory) {
             struct core_worker *worker = list[i].worker;
             struct video_frame *last_frame = &list[i].worker->memory->frame;
-            last_frame->data = &list[i].worker->memory->frame_data;
             animate_next_frame(&list[i].anim, list[i].gfx_id, list[i].worker);
             acquire(&last_frame->mutex);
             if (last_frame->id == 0) {
             //    rt_log("frame dupped\n");
             } else {
-                dispmanx_update_frame(list[i].gfx_id, last_frame);
+                dispmanx_update_frame(list[i].gfx_id, last_frame, list[i].worker->memory->frame_data);
                 if (worker->last_id + 1 != last_frame->id) {
                     rt_log("%d frame(s) dropped\n", last_frame->id - worker->last_id - 1);
                 }

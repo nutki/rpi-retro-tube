@@ -427,7 +427,7 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     last_frame->fmt = pixel_format;
     last_frame->time_us = (int)(1000000/(rsavi.timing.fps ? rsavi.timing.fps : 1));
     last_frame->id = ++frame_cnt;
-    memcpy(&shared_mem->frame_data, data, h * pitch);
+    memcpy(shared_mem->frame_data, data, h * pitch);
     release(&last_frame->mutex);
 }
 #define MAX_AUDIO_SAMPLES 1000
@@ -563,12 +563,7 @@ void save_state(const char *name) {
     game_state.header.fmt = last_frame->fmt;
     game_state.header.screen_data_size = last_frame->h * last_frame->pitch;
     game_state.header.state_data_size = core.retro_serialize_size();
-    const void *current_screen = last_frame->data;
-    if (current_screen == game_state.screen) {
-        memcpy(state_tmp, current_screen, game_state.header.screen_data_size);
-        current_screen = state_tmp;
-    }
-    int csize = LZ4_compress_default(current_screen, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
+    int csize = LZ4_compress_default(last_frame->data, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
     rt_log("compressed state size %d => %d\n", game_state.header.screen_data_size, csize);
     game_state.header.screen_data_size = csize;
     core.retro_serialize(state_tmp, game_state.header.state_data_size);
@@ -602,7 +597,8 @@ void load_state_1(const char *name) {
         last_frame->fmt = game_state.header.fmt;
         last_frame->time_us = 1000000;
         last_frame->id = ++frame_cnt;
-        memcpy(&shared_mem->frame_data, last_frame->data, last_frame->h * last_frame->pitch);
+        memcpy(shared_mem->frame_data, last_frame->data, last_frame->h * last_frame->pitch);
+        last_frame->data = shared_mem->frame_data;
         release(&last_frame->mutex);
     } else {
         lseek(fd, game_state.header.screen_data_size, SEEK_CUR);

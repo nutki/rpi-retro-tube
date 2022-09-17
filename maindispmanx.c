@@ -184,7 +184,7 @@ void dispmanx_show() {
   pthread_cond_timedwait(&vsync_cond, &vsync_mutex, &ts);
   pthread_mutex_unlock(&vsync_mutex);
 }
-void dispmanx_update_frame(struct frame_element *fe, struct video_frame *frame) {
+void dispmanx_update_frame(struct frame_element *fe, struct video_frame *frame, void *frame_data) {
   int pitch_w = frame->pitch / pixel_format_to_size(frame->fmt);
   if (frame->pitch != fe->pitch || frame->w != fe->w || frame->h != fe->h || frame->fmt != fe->mode || !fe->resource) {
     fe->src_rect_dirty = 1;
@@ -215,7 +215,7 @@ void dispmanx_update_frame(struct frame_element *fe, struct video_frame *frame) 
   }
   VC_RECT_T bmpRect;
   vc_dispmanx_rect_set(&bmpRect, 0, 0, pitch_w, frame->h);
-  vc_dispmanx_resource_write_data(fe->resource, pixel_format_to_mode(fe->mode), frame->pitch, frame->data, &bmpRect);
+  vc_dispmanx_resource_write_data(fe->resource, pixel_format_to_mode(fe->mode), frame->pitch, frame_data, &bmpRect);
 }
 
 int sdtv_aspect = 0;
