@@ -44,7 +44,6 @@ enum rt_message_type {
 struct video_frame {
     int w, h, pitch, fmt;
     float aspect;
-    void *data;
     int time_us;
     atomic_flag mutex;
     int id;

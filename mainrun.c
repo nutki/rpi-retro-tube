@@ -156,7 +156,20 @@ struct content_list {
     struct core_worker *worker;
     struct frame_element *gfx_id;
     struct animation anim;
+    char *label;
 } list[MAX_CONTENT];
+char *content_get_label(struct content_list *c) {
+    char *ret = 0;
+    if (!c->filename) asprintf(&ret, "[%s]", c->core);
+    else {
+        char *last_slash = strrchr(c->filename, '/');
+        char *start = last_slash ? last_slash + 1 : c->filename;
+        char *last_dot = strrchr(start, '.');
+        char len = last_dot ? last_dot - start : strlen(start);
+        asprintf(&ret, "[%s] %.*s", c->core, len, start);
+    }
+    return ret;
+}
 int load_content_queue() {
     char line[FILENAME_MAX * 2];
     int i = 0;
@@ -170,6 +183,7 @@ int load_content_queue() {
         if (s) *s++ = 0;
         list[i].core = strdup(line);
         list[i].filename = s ? strdup(s) : 0;
+        list[i].label = content_get_label(&list[i]);
         printf("<%s> <%s>\n", line, s);
         i++;
     }
@@ -180,14 +194,34 @@ void term(int signum) {
     rt_log("term signal\n");
     done = 1;
 }
+#include "vcrfont.h"
+#define LABELS_H 448
+#define LABELS_W 640
+struct frame_element *labels;
+struct video_frame labels_frame = {
+    LABELS_W, LABELS_H, LABELS_W * 2, RETRO_PIXEL_FORMAT_RGB565, (float)LABELS_W/LABELS_H
+};
+uint16_t labels_data[LABELS_W * LABELS_H];
+static int put_pixel_dx, put_pixel_dy;
+void put_pixel(int x, int y, int v) {
+    labels_data[x + put_pixel_dx + (y + put_pixel_dy) * LABELS_W] = v ? 0xFFFF : 0;
+}
+void labeltext(int x, int y, int maxy, const char *str) {
+    put_pixel_dx = x;
+    put_pixel_dy = y;
+    render_text(str, put_pixel, maxy);
+}
 int current_content_idx = 0;
 void update_workers() {
+    memset(labels_data + 85 * LABELS_W, 0, 2 * LABELS_W * VCR_FONT_H);
+    labeltext(0, 85, 640, list[current_content_idx].label);
+    dispmanx_update_frame(labels, &labels_frame, labels_data);
     for (int i = 0; i < MAX_CONTENT && list[i].core; i++) {
         int diff = i - current_content_idx;
         if (diff >= -1 && diff <= 3) {
             if (!list[i].worker) {
                 list[i].worker = core_start(list[i].core, list[i].filename);
-                list[i].gfx_id = dispmanx_new_element();
+                list[i].gfx_id = dispmanx_new_element(10);
                 animate_init(&list[i].anim);
                 animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80, 0);
             }
@@ -207,6 +241,9 @@ int main() {
     signal(SIGINT, term);
     input_handler_init();
     dispmanx_init();
+    labels = dispmanx_new_element(9);
+    dispmanx_set_pos(labels, 0, 1, 0x200);
+    dispmanx_update_frame(labels, &labels_frame, labels_data);
     rt_log("udev input initialized\n");
     int num_content = load_content_queue();
     update_workers();

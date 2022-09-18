@@ -419,7 +419,6 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     } else if (t) {
 //        rt_log("frame would be dropped, waited %dms\n", t);
     }
-    last_frame->data = shared_mem->frame_data;
     last_frame->w = w;
     last_frame->h = h;
     last_frame->pitch = pitch;
@@ -569,7 +568,7 @@ void save_state(const char *name) {
     game_state.header.fmt = last_frame->fmt;
     game_state.header.screen_data_size = last_frame->h * last_frame->pitch;
     game_state.header.state_data_size = core.retro_serialize_size();
-    int csize = LZ4_compress_default(last_frame->data, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
+    int csize = LZ4_compress_default((void *)shared_mem->frame_data, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
     rt_log("compressed state size %d => %d\n", game_state.header.screen_data_size, csize);
     game_state.header.screen_data_size = csize;
     core.retro_serialize(state_tmp, game_state.header.state_data_size);
@@ -595,7 +594,6 @@ void load_state_1(const char *name) {
 
         rt_log("state loading start 2\n");
         acquire(&last_frame->mutex);
-        last_frame->data = game_state.screen;
         last_frame->w = game_state.header.w;
         last_frame->h = game_state.header.h;
         last_frame->pitch = game_state.header.pitch;
@@ -603,8 +601,7 @@ void load_state_1(const char *name) {
         last_frame->fmt = game_state.header.fmt;
         last_frame->time_us = 1000000;
         last_frame->id = ++frame_cnt;
-        memcpy(shared_mem->frame_data, last_frame->data, last_frame->h * last_frame->pitch);
-        last_frame->data = shared_mem->frame_data;
+        memcpy(shared_mem->frame_data, game_state.screen, last_frame->h * last_frame->pitch);
         release(&last_frame->mutex);
     } else {
         lseek(fd, game_state.header.screen_data_size, SEEK_CUR);

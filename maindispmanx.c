@@ -28,6 +28,7 @@ static struct frame_element {
   int time_us;
   int framerate_dirty;
   int used;
+  int layer;
 } frame_elements[MAX_ELEMENTS];
 
 static int screenX, screenY, screenXoffset;
@@ -137,9 +138,12 @@ void dispmanx_show() {
     vc_dispmanx_element_change_attributes(update, fe->element, ELEMENT_CHANGE_SRC_RECT | ELEMENT_CHANGE_DEST_RECT, 0, 0,
                                           &dstRect, &srcRect, 0, 0);
     } else {
-      int layer = 10;
-      fe->element = vc_dispmanx_element_add(update, display, layer, &dstRect, fe->resource, &srcRect, DISPMANX_PROTECTION_NONE,
-                                    NULL, NULL, DISPMANX_NO_ROTATE);
+      VC_DISPMANX_ALPHA_T alpha = {
+        opacity : 255,
+        flags : DISPMANX_FLAGS_ALPHA_FROM_SOURCE,
+      };
+      fe->element = vc_dispmanx_element_add(update, display, fe->layer, &dstRect, fe->resource, &srcRect, DISPMANX_PROTECTION_NONE,
+                                    &alpha, NULL, DISPMANX_NO_ROTATE);
     }
 //    rt_log("Resizing canvas %d %dx%d => %d(%d)x%d %f pixel aspect = %f frame time = %d (%.2ffps)\n", i, fe->w, fe->h, w, target_w, h,
 //           aspect, aspect * h / w, fe->time_us, 1000000./fe->time_us);
@@ -331,10 +335,11 @@ void dispmanx_close() {
   sdtv_set_mode(original_mode);
 }
 
-struct frame_element *dispmanx_new_element(void) {
+struct frame_element *dispmanx_new_element(int layer) {
   for (int i = 0; i < MAX_ELEMENTS; i++) {
     if (!frame_elements[i].used) {
       frame_elements[i].used = 1;
+      frame_elements[i].layer = layer;
       return &frame_elements[i];
     }
   }
