@@ -700,6 +700,41 @@ void read_comm() {
         }
     };
 }
+
+struct core_info {
+    char *name;
+    char *path;
+    int dry_run_frames;
+} cores[] = {
+    { "cplus4", "/home/pi/GIT/vice-libretro/vice_xplus4_libretro.so" },
+    { "c64", "./vice_x64_libretro.so" },
+    { "c64x", "/home/pi/GIT/vice-libretro/vice_x64_libretro.so" },
+    { "c128", "/opt/retropie/libretrocores/lr-vice/vice_x128_libretro.so" },
+    { "amstrad", "/opt/retropie/libretrocores/lr-caprice32/cap32_libretro.so" },
+    { "psx", "/opt/retropie/libretrocores/lr-pcsx-rearmed/pcsx_rearmed_libretro.so" },
+    { "psx-ds", "./duckstation_libretro.so" },
+    { "nes", "/opt/retropie/libretrocores/lr-fceumm/fceumm_libretro.so" },
+    { "amiga2", "./puae2021_libretro.so" },
+    { "amiga", "/opt/retropie/libretrocores/lr-puae/puae_libretro.so" },
+    { "gba", "/opt/retropie/libretrocores/lr-mgba/mgba_libretro.so" },
+    { "gba2", "/opt/retropie/libretrocores/lr-vba-next/vba_next_libretro.so" },
+    { "gb", "/opt/retropie/libretrocores/lr-gambatte/gambatte_libretro.so" },
+    { "zx", "/opt/retropie/libretrocores/lr-fuse/fuse_libretro.so", dry_run_frames : 1 },
+    { "atari", "/opt/retropie/libretrocores/lr-atari800/atari800_libretro.so" },
+    { "atari5200", "/home/pi/GIT/libretro-atari800lib/libatari800-5200_libretro.so" },
+    { "atari800", "/home/pi/GIT/libretro-atari800lib/libatari800_libretro.so" },
+    { "atari2600", "/opt/retropie/libretrocores/lr-stella2014/stella2014_libretro.so" },
+    { "snes", "/opt/retropie/libretrocores/lr-snes9x2005/snes9x2005_libretro.so" },
+//  { "snes", "/opt/retropie/libretrocores/lr-snes9x/snes9x_libretro.so" }, // gfx shifted (pitch not multiple of 32)
+    { "sega", "/opt/retropie/libretrocores/lr-genesis-plus-gx/genesis_plus_gx_libretro.so" },
+    { "mame", "/opt/retropie/libretrocores/lr-mame2003/mame2003_libretro.so", dry_run_frames : 3 },
+    { "mame2000", "/opt/retropie/libretrocores/lr-mame2000/mame2000_libretro.so", dry_run_frames : 3 },
+    { "mama2003plus", "/opt/retropie/libretrocores/lr-mame2003-plus/mame2003_plus_libretro.so", dry_run_frames : 3 },
+    { "mame2010", "/opt/retropie/libretrocores/lr-mame2010/mame2010_libretro.so", dry_run_frames : 3 },
+    // more: lynx atarist g&w wanderswan (color) pokemonmini dosbox
+    { 0 },
+};
+
 #include <sys/mman.h>
 #pragma GCC optimize ("O0")
 int main(int argc, char** argv) {
@@ -727,96 +762,14 @@ int main(int argc, char** argv) {
         return 0;
     }
     int dry_run_frames = 0;
-    if (!strcmp(argv[1], "cplus4")) {
-//        cname = "/opt/retropie/libretrocores/lr-vice/vice_xplus4_libretro.so"; // ok, aspect bad? save state broken
-        cname = "/home/pi/GIT/vice-libretro/vice_xplus4_libretro.so"; // ok, aspect bad?
-        path = "/home/pi/treasure_island.prg";
-    } else if (!strcmp(argv[1], "cplus4n")) {
-//        cname = "/opt/retropie/libretrocores/lr-vice/vice_xplus4_libretro.so"; // ok, aspect bad? save state broken
-        cname = "/home/pi/GIT/vice-libretro/vice_xplus4_libretro.so"; // ok, aspect bad?
-    } else if(!strcmp(argv[1], "c64")) {
-        cname = "./vice_x64_libretro.so"; // ok, aspect bad?
-        path = "/home/pi/Simons_Basic.d64";
-    } else if(!strcmp(argv[1], "c64x")) {
-        cname = "/home/pi/GIT/vice-libretro/vice_x64_libretro.so"; // ok, aspect bad?
-        path = "/home/pi/Simons_Basic.d64";
-    } else if(!strcmp(argv[1], "c128")) {
-        cname = "/opt/retropie/libretrocores/lr-vice/vice_x128_libretro.so"; // ok, aspect bad?
-    } else if(!strcmp(argv[1], "amstrad")) {
-        cname = "/opt/retropie/libretrocores/lr-caprice32/cap32_libretro.so"; // ok, aspect ok
-    } else if(!strcmp(argv[1], "psx")) {
-        cname = "/opt/retropie/libretrocores/lr-pcsx-rearmed/pcsx_rearmed_libretro.so"; // ok, aspect unknown
-        path = "/home/pi/RetroPie/roms/psx/Castlevania.bin";
-    } else if(!strcmp(argv[1], "psx-ds")) {
-        cname = "./duckstation_libretro.so";
-    } else if(!strcmp(argv[1], "nes")) {
-        cname = "/opt/retropie/libretrocores/lr-fceumm/fceumm_libretro.so"; // ok, aspect unknown, configurable
-        path = "./Metal Gear (USA).nes";
-    } else if(!strcmp(argv[1], "amiga2")) {
-        cname = "./puae2021_libretro.so";
-    } else if(!strcmp(argv[1], "amiga")) {
-        cname = "/opt/retropie/libretrocores/lr-puae/puae_libretro.so"; // ok, aspect bad?  - cannot restore whdload save state, reconfigures terminal
-//        path = "/home/pi/LupoAlberto_v1.01.lha";
-        path = "/home/pi/Lupo Alberto (1991)(Idea).adf";
-    } else if(!strcmp(argv[1], "gba")) {
-        cname = "/opt/retropie/libretrocores/lr-mgba/mgba_libretro.so"; // ok, aspect ok
-        path = "./Advance Wars 2.gba";
-    } else if(!strcmp(argv[1], "gba2")) {
-        cname = "/opt/retropie/libretrocores/lr-vba-next/vba_next_libretro.so"; // ok, aspect ok
-        path = "./Advance Wars 2.gba";
-    } else if(!strcmp(argv[1], "gb")) {
-        cname = "/opt/retropie/libretrocores/lr-gambatte/gambatte_libretro.so"; // ok, aspect ok
-        path = "./Dr. Mario (W) (V1.1).gb";
-    } else if(!strcmp(argv[1], "zx")) {
-        cname = "/opt/retropie/libretrocores/lr-fuse/fuse_libretro.so"; // ok, aspect 0, save state broken?
-        path = "/home/pi//RetroPie/roms/zxspectrum/3D Deathchase (1983)(Zeppelin Games Ltd).tzx";
-        dry_run_frames = 1;
-    } else if(!strcmp(argv[1], "atari")) {
-        cname = "/opt/retropie/libretrocores/lr-atari800/atari800_libretro.so"; // ok, aspect unknown
-        path = "/home/pi/Mr. Robot and His Robot Factory (1983)(Datamost)(US)[h SOL].atr";
-    } else if(!strcmp(argv[1], "atari5200")) {
-        cname = "/home/pi/GIT/libretro-atari800lib/libatari800-5200_libretro.so";
-        path = "./mrrobot.atr";
-    } else if(!strcmp(argv[1], "atari800")) {
-        cname = "/home/pi/GIT/libretro-atari800lib/libatari800_libretro.so";
-        path = "./mrrobot.atr";
-//        path = "./Arkanoid.atr";
-    } else if(!strcmp(argv[1], "atari2600")) {
-        cname = "/opt/retropie/libretrocores/lr-stella2014/stella2014_libretro.so"; // ok, aspect unknown
-        path = "/home/pi/RetroPie/roms/atari2600/Rive Raid.bin";
-    } else if(!strcmp(argv[1], "snes")) {
-       cname = "/opt/retropie/libretrocores/lr-snes9x2005/snes9x2005_libretro.so"; // ok
-//        cname = "/opt/retropie/libretrocores/lr-snes9x/snes9x_libretro.so"; // gfx shifted
-        path = "./Super Mario World (U) [!].smc";
-    } else if(!strcmp(argv[1], "sega")) {
-        cname = "/opt/retropie/libretrocores/lr-genesis-plus-gx/genesis_plus_gx_libretro.so";
-        path = "./Aladdin (USA).md";
-    } else if (!strcmp(argv[1], "scumm")) {
-        cname = "/opt/retropie/libretrocores/lr-scummvm/scummvm_libretro.so"; // no saves
-        path = "/home/pi/ij/ATLANTIS.000";
-    } else if (!strcmp(argv[1], "mame")) {
-        cname = "/opt/retropie/libretrocores/lr-mame2003/mame2003_libretro.so";
-        path = "/home/pi/RetroPie/roms/mame/moonwlkb.zip";
-        dry_run_frames = 3;
-    } else if (!strcmp(argv[1], "mame2000")) {
-        cname = "/opt/retropie/libretrocores/lr-mame2000/mame2000_libretro.so";
-        path = "/home/pi/RetroPie/roms/mame/moonwlkb.zip";
-        dry_run_frames = 3;
-    } else if (!strcmp(argv[1], "mame2003plus")) {
-        cname = "/opt/retropie/libretrocores/lr-mame2003-plus/mame2003_plus_libretro.so";
-        path = "/home/pi/RetroPie/roms/mame/moonwlkb.zip";
-        dry_run_frames = 3;
-    } else if (!strcmp(argv[1], "mame2010")) {
-        cname = "/opt/retropie/libretrocores/lr-mame2010/mame2010_libretro.so";
-        path = "/home/pi/RetroPie/roms/mame/moonwlkb.zip";
-        dry_run_frames = 3;
+    for (struct core_info *c = cores; c->name; c++) if (!strcmp(c->name, argv[1])) {
+        dry_run_frames = c->dry_run_frames;
+        cname = c->path;
     }
     if (argc >= 3) {
         path = argv[2];
     } 
     if (!cname) exit(0);
-    // more: n64? lynx atarist g&w wanderswan (color) pokemonmini dosbox
-    // save states: mame (run for one frame, 3 for audio), zx (run for one frame), atari800 (no saves supported), plus4 audio
     read_comm();
     rt_log("STARTED\n");
     char savename2[1000];
