@@ -399,10 +399,28 @@ struct video_frame *last_frame;
 int frame_cnt = 0;
 struct shared_memory *shared_mem;
 int frame_sync;
+float par50, par60;
+int skip_frames;
+struct par_table {
+    int w, is50hz;
+    float par;
+} *par_table;
 void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_t pitch) {
     static int frame = 0;
     if (dry_run) return;
-    if (frame < 10 || frame % 100 == 0) rt_log("VID%d: %d x %d pitch %d\n", frame, w, h, pitch);
+    if (skip_frames) {
+        skip_frames--;
+        return;
+    }
+    int is50hz = rsavi.timing.fps > 48 && rsavi.timing.fps < 52;
+    float par_override = is50hz ? par50 : par60;
+    for (struct par_table *pt = par_table; pt && pt->w; pt++) {
+        if (pt->w == w && pt->is50hz == is50hz) {
+            par_override = pt->par;
+            break;
+        }
+    }
+    if (frame < 10 || frame % 100 == 0) rt_log("VID%d: %d x %d pitch %d par %.3f -> %.3f\n", frame, w, h, pitch, rsavi.geometry.aspect_ratio * h / w, par_override);
     frame++;
     if (!data) {
         return;
@@ -422,7 +440,7 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     last_frame->w = w;
     last_frame->h = h;
     last_frame->pitch = pitch;
-    last_frame->aspect = rsavi.geometry.aspect_ratio;
+    last_frame->aspect = par_override ? par_override * w / h : rsavi.geometry.aspect_ratio;
     last_frame->fmt = pixel_format;
     last_frame->time_us = (int)(1000000/(rsavi.timing.fps ? rsavi.timing.fps : 1));
     last_frame->id = ++frame_cnt;
@@ -701,19 +719,46 @@ void read_comm() {
     };
 }
 
+/*
+ 1:1 NTSC P -> 6.136Mhz
+ 1:1 PAL P -> 7.375Mhz
+
+  PSX.256-pix Dotclock =  5.322240MHz (44100Hz*300h*11/7/10)
+  PSX.320-pix Dotclock =  6.652800MHz (44100Hz*300h*11/7/8)
+  PSX.368-pix Dotclock =  7.603200MHz (44100Hz*300h*11/7/7)
+  PSX.512-pix Dotclock = 10.644480MHz (44100Hz*300h*11/7/5)
+  PSX.640-pix Dotclock = 13.305600MHz (44100Hz*300h*11/7/4)
+*/
+struct par_table par_table_psx[] = {
+    {256, 0, 1.143},
+    {320, 0, 0.914},
+    {368, 0, 0.800},
+    {384, 0, 0.800},
+    {512, 0, 0.571},
+    {640, 0, 0.457},
+    {256, 1, 1.386},
+    {320, 1, 1.109},
+    {368, 1, 0.970},
+    {512, 1, 0.693},
+    {640, 1, 0.554},
+    {0},
+};
+
 struct core_info {
     char *name;
     char *path;
-    int dry_run_frames;
+    int dry_run_frames, skip_frames;
+    float par50, par60;
+    struct par_table *par;
 } cores[] = {
     { "cplus4", "/home/pi/GIT/vice-libretro/vice_xplus4_libretro.so" },
     { "c64", "./vice_x64_libretro.so" },
     { "c64x", "/home/pi/GIT/vice-libretro/vice_x64_libretro.so" },
     { "c128", "/opt/retropie/libretrocores/lr-vice/vice_x128_libretro.so" },
-    { "amstrad", "/opt/retropie/libretrocores/lr-caprice32/cap32_libretro.so" },
-    { "psx", "/opt/retropie/libretrocores/lr-pcsx-rearmed/pcsx_rearmed_libretro.so" },
+    { "amstrad", "/opt/retropie/libretrocores/lr-caprice32/cap32_libretro.so", skip_frames : 1 },
+    { "psx", "/opt/retropie/libretrocores/lr-pcsx-rearmed/pcsx_rearmed_libretro.so", par : par_table_psx, skip_frames : 1 },
     { "psx-ds", "./duckstation_libretro.so" },
-    { "nes", "/opt/retropie/libretrocores/lr-fceumm/fceumm_libretro.so" },
+    { "nes", "/opt/retropie/libretrocores/lr-fceumm/fceumm_libretro.so", par60 : 1.1428, par50 : 1.3861 },
     { "amiga2", "./puae2021_libretro.so" },
     { "amiga", "/opt/retropie/libretrocores/lr-puae/puae_libretro.so" },
     { "gba", "/opt/retropie/libretrocores/lr-mgba/mgba_libretro.so" },
@@ -723,8 +768,8 @@ struct core_info {
     { "atari", "/opt/retropie/libretrocores/lr-atari800/atari800_libretro.so" },
     { "atari5200", "/home/pi/GIT/libretro-atari800lib/libatari800-5200_libretro.so" },
     { "atari800", "/home/pi/GIT/libretro-atari800lib/libatari800_libretro.so" },
-    { "atari2600", "/opt/retropie/libretrocores/lr-stella2014/stella2014_libretro.so" },
-    { "snes", "/opt/retropie/libretrocores/lr-snes9x2005/snes9x2005_libretro.so" },
+    { "atari2600", "/opt/retropie/libretrocores/lr-stella2014/stella2014_libretro.so", par60 : 1.714 },
+    { "snes", "/opt/retropie/libretrocores/lr-snes9x2005/snes9x2005_libretro.so", par60 : 1.1428, par50 : 1.3862 },
 //  { "snes", "/opt/retropie/libretrocores/lr-snes9x/snes9x_libretro.so" }, // gfx shifted (pitch not multiple of 32)
     { "sega", "/opt/retropie/libretrocores/lr-genesis-plus-gx/genesis_plus_gx_libretro.so" },
     { "mame", "/opt/retropie/libretrocores/lr-mame2003/mame2003_libretro.so", dry_run_frames : 3 },
@@ -764,6 +809,10 @@ int main(int argc, char** argv) {
     int dry_run_frames = 0;
     for (struct core_info *c = cores; c->name; c++) if (!strcmp(c->name, argv[1])) {
         dry_run_frames = c->dry_run_frames;
+        skip_frames = c->skip_frames;
+        par50 = c->par50;
+        par60 = c->par60;
+        par_table = c->par;
         cname = c->path;
     }
     if (argc >= 3) {
