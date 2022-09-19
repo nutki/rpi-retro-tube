@@ -723,12 +723,20 @@ void read_comm() {
  1:1 NTSC P -> 6.136Mhz
  1:1 PAL P -> 7.375Mhz
 
+ par = (1:1 dot clock) / (dot clock)
+
   PSX.256-pix Dotclock =  5.322240MHz (44100Hz*300h*11/7/10)
   PSX.320-pix Dotclock =  6.652800MHz (44100Hz*300h*11/7/8)
   PSX.368-pix Dotclock =  7.603200MHz (44100Hz*300h*11/7/7)
   PSX.512-pix Dotclock = 10.644480MHz (44100Hz*300h*11/7/5)
   PSX.640-pix Dotclock = 13.305600MHz (44100Hz*300h*11/7/4)
 */
+// https://pineight.com/mw/page/Dot_clock_rates.xhtml
+// https://pineight.com/mw/page/Talk_Dot_clock_rates.xhtml
+// https://forums.atariage.com/topic/189995-confusion-with-aspect-ratios/
+// https://www.nesdev.org/wiki/Overscan
+// https://www.nesdev.org/wiki/Cycle_reference_chart
+// https://wiki.superfamicom.org/timing
 struct par_table par_table_psx[] = {
     {256, 0, 1.143},
     {320, 0, 0.914},
@@ -767,11 +775,11 @@ struct core_info {
     { "zx", "/opt/retropie/libretrocores/lr-fuse/fuse_libretro.so", dry_run_frames : 1 },
     { "atari", "/opt/retropie/libretrocores/lr-atari800/atari800_libretro.so" },
     { "atari5200", "/home/pi/GIT/libretro-atari800lib/libatari800-5200_libretro.so" },
-    { "atari800", "/home/pi/GIT/libretro-atari800lib/libatari800_libretro.so" },
+    { "atari800", "/home/pi/GIT/libretro-atari800lib/libatari800_libretro.so" }, // par OK
     { "atari2600", "/opt/retropie/libretrocores/lr-stella2014/stella2014_libretro.so", par60 : 1.714 },
     { "snes", "/opt/retropie/libretrocores/lr-snes9x2005/snes9x2005_libretro.so", par60 : 1.1428, par50 : 1.3862 },
 //  { "snes", "/opt/retropie/libretrocores/lr-snes9x/snes9x_libretro.so" }, // gfx shifted (pitch not multiple of 32)
-    { "sega", "/opt/retropie/libretrocores/lr-genesis-plus-gx/genesis_plus_gx_libretro.so" },
+    { "sega", "/opt/retropie/libretrocores/lr-genesis-plus-gx/genesis_plus_gx_libretro.so" }, // par60 OK
     { "mame", "/opt/retropie/libretrocores/lr-mame2003/mame2003_libretro.so", dry_run_frames : 3 },
     { "mame2000", "/opt/retropie/libretrocores/lr-mame2000/mame2000_libretro.so", dry_run_frames : 3 },
     { "mama2003plus", "/opt/retropie/libretrocores/lr-mame2003-plus/mame2003_plus_libretro.so", dry_run_frames : 3 },
