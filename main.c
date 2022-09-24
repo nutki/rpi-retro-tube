@@ -737,6 +737,9 @@ void read_comm() {
 // https://www.nesdev.org/wiki/Overscan
 // https://www.nesdev.org/wiki/Cycle_reference_chart
 // https://wiki.superfamicom.org/timing
+// https://codebase64.org/doku.php?id=base:pixel_aspect_ratio
+// http://www.retroisle.com/general/tedchip.php
+// https://retrocomputing.stackexchange.com/questions/25107/what-is-the-size-of-the-border-of-the-zx-spectrum-in-scanlines-pixels-bytes
 struct par_table par_table_psx[] = {
     {256, 0, 1.143},
     {320, 0, 0.914},
