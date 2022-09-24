@@ -327,6 +327,22 @@ bool retro_environment(unsigned int cmd, void *data) {
             //     var->value = "5200";
             //     return true;
             // }
+            // if (!strcmp(var->key, "dosbox_pure_savestate")) {
+            //     var->value = "rewind";
+            //     return true;
+            // }
+            if (!strcmp(var->key, "dosbox_pure_force60fps")) {
+                var->value = "true";
+                return true;
+            }
+            if (!strcmp(var->key, "dosbox_pure_aspect_correction")) {
+                var->value = "true";
+                return true;
+            }
+            if (!strcmp(var->key, "dosbox_pure_latency")) {
+                var->value = "variable";
+                return true;
+            }
             if (!strcmp(var->key, "vice_resid_sampling")) {
                 var->value = "fast";
                 return true;
@@ -388,6 +404,22 @@ bool retro_environment(unsigned int cmd, void *data) {
             // * Bit 2 (value 4): Use Fast Savestates.
             // * Bit 3 (value 8): Hard Disable Audio
             return false;
+        }
+        case RETRO_ENVIRONMENT_GET_THROTTLE_STATE: {
+            struct retro_throttle_state *tstate = data;
+            tstate->mode = RETRO_THROTTLE_NONE;
+            tstate->rate = rsavi.timing.fps;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_GET_FASTFORWARDING: {
+            bool *ff = data;
+            *ff = false;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE: {
+            float *rate = data;
+            *rate = rsavi.timing.fps;
+            return true;
         }
     }
     rt_log("ENV: unkown cmd %d\n", cmd & 255);
@@ -787,6 +819,7 @@ struct core_info {
     { "mame2000", "/opt/retropie/libretrocores/lr-mame2000/mame2000_libretro.so", dry_run_frames : 3 },
     { "mama2003plus", "/opt/retropie/libretrocores/lr-mame2003-plus/mame2003_plus_libretro.so", dry_run_frames : 3 },
     { "mame2010", "/opt/retropie/libretrocores/lr-mame2010/mame2010_libretro.so", dry_run_frames : 3 },
+    { "dosbox", "./dosbox_pure_libretro.so", dry_run_frames : 1, skip_frames : 2 },
     // more: lynx atarist g&w wanderswan (color) pokemonmini dosbox
     { 0 },
 };
