@@ -110,6 +110,7 @@ const char *get_option(const char *key) {
     return NULL;
 }
 char framebuffer[1024*1024*100];
+int core_needs_reset = 0;
 bool retro_environment(unsigned int cmd, void *data) {
 //    rt_log("ENV: cmd %d\n", cmd & 255);
     switch(cmd) {
@@ -419,6 +420,10 @@ bool retro_environment(unsigned int cmd, void *data) {
         case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE: {
             float *rate = data;
             *rate = rsavi.timing.fps;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SHUTDOWN: {
+            core_needs_reset = 1;
             return true;
         }
     }
@@ -926,6 +931,10 @@ int main(int argc, char** argv) {
 
     int frames = 0;
     for(int i = 0; !done; i++) {
+        if (core_needs_reset) {
+            core.retro_reset();
+            core_needs_reset = 0;
+        }
         read_comm();
         int64_t s = timestamp();
         if (play_state) {
