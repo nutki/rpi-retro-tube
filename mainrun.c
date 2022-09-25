@@ -114,6 +114,14 @@ void core_message_input_data(struct core_worker *core, int port, int16_t *data) 
     if (data) memcpy(core->memory->joypad_state[port], data, sizeof(core->memory->joypad_state[port]));
     else memset(core->memory->joypad_state[port], 0, sizeof(core->memory->joypad_state[port]));
 }
+void core_message_save_state(struct core_worker *core, int id) {
+    struct message_save_state message = { type : SAVE_STATE, id : id };
+    write(core->comm_socket, &message, sizeof(message));
+}
+void core_message_load_state(struct core_worker *core, int id) {
+    struct message_save_state message = { type : LOAD_STATE, id : id };
+    write(core->comm_socket, &message, sizeof(message));
+}
 void core_stop(struct core_worker *core) {
     core_message(core, QUIT_CORE);
     if (core->memory) munmap(core->memory, SHARED_MEM_SIZE);
@@ -260,6 +268,17 @@ int main() {
             for (int i = 0; i < num_content; i++) if (list[i].worker) {
                 core_message(list[i].worker, i == current_content_idx ? START_GAME : PAUSE_GAME);
                 animate_set_pos(&list[i].anim, -180 + (i - current_content_idx) * 250, 0, i == current_content_idx ? 0xC0 : 0x80, 0);
+            }
+        }
+        if (ui_controls && list[current_content_idx].worker) {
+            if (ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_SELECT)) {
+                core_message(list[current_content_idx].worker, RESET_GAME);
+            }
+            if (ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_X)) {
+                core_message_load_state(list[current_content_idx].worker, SAVE_STATE_ID_TITLE);
+            }
+            if (ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_Y)) {
+                core_message_save_state(list[current_content_idx].worker, SAVE_STATE_ID_TITLE);
             }
         }
         if (ui_controls & (1 << RETRO_DEVICE_ID_JOYPAD_A)) {

@@ -597,8 +597,11 @@ int load_core(struct retro_core *core, const char *lib_file_path) {
     rt_log("%s %s %s fullpath=%d\n", rsi->library_name, rsi->library_version, rsi->valid_extensions, rsi->need_fullpath);
     return 0;
 }
-        char state[1024*1024*20];
-            char game_data[1024*1024*20];
+
+
+
+char state[1024*1024*20];
+char game_data[1024*1024*20];
 struct game_state {
     struct state_header {
         int32_t w, h, pitch, fmt;
@@ -610,7 +613,20 @@ struct game_state {
     char state[1024*1024*20];
 } game_state;
 char state_tmp[1024*1024*10];
-void save_state(const char *name) {
+char state_name_prefix[FILENAME_MAX], state_name[FILENAME_MAX + 12];
+void set_sate_state_name_prefix(const char *prefix) {
+    strcpy(state_name_prefix, prefix);
+}
+const char *get_save_state_name(int id) {
+    if (id == SAVE_STATE_ID_AUTO)
+        snprintf(state_name, sizeof(state_name) - 1, "%s.save.rtube", state_name_prefix);
+    else if (id == SAVE_STATE_ID_TITLE)
+        snprintf(state_name, sizeof(state_name) - 1, "%s.init.rtube", state_name_prefix);
+    else
+        snprintf(state_name, sizeof(state_name) - 1, "%s.%04x.rtube", state_name_prefix, id);
+    return state_name;
+}
+void save_state(int id) {
     game_state.header.aspect = last_frame->aspect;
     game_state.header.w = last_frame->w;
     game_state.header.h = last_frame->h;
@@ -626,19 +642,19 @@ void save_state(const char *name) {
     int csize2 = LZ4_compress_default(state_tmp, game_state.state, game_state.header.state_data_size, sizeof(game_state.state));
     rt_log("compressed state to %d\n", csize2);
     game_state.header.state_data_size = csize2;
-    int fd = open(name, O_WRONLY | O_CREAT, 0666);
+    int fd = open(get_save_state_name(id), O_WRONLY | O_CREAT, 0666);
     if (fd < 0) return;
     write(fd, &game_state.header, sizeof(struct state_header));
     write(fd, game_state.screen, game_state.header.screen_data_size);
     write(fd, game_state.state, game_state.header.state_data_size);
     rt_log("state written to file\n");
 }
-void load_state_1(const char *name) {
-    int fd = open(name, O_RDONLY);
+void load_state_1(int id, int with_screenshot) {
+    int fd = open(get_save_state_name(id), O_RDONLY);
     if (fd < 0) return;
     rt_log("state loading start 1\n");
     read(fd, &game_state.header, sizeof(struct state_header));
-    if (1) {
+    if (with_screenshot) {
         read(fd, state_tmp, game_state.header.screen_data_size);
         LZ4_decompress_safe(state_tmp, game_state.screen, game_state.header.screen_data_size, sizeof(game_state.screen));
 
@@ -745,6 +761,15 @@ void read_comm() {
         } else if (msg_type == SYNC_OFF) {
             frame_sync = 0;
             rt_log("frame sync OFF\n");
+        } else if (msg_type == LOAD_STATE) {
+            struct message_save_state *msg = (void*)buf;
+            load_state_1(msg->id, 0);
+            load_state_2();
+        } else if (msg_type == SAVE_STATE) {
+            struct message_save_state *msg = (void*)buf;
+            save_state(msg->id);
+        } else if (msg_type == RESET_GAME) {
+            core.retro_reset();
         } else {
             rt_log("GOT MESSAGE %d\n", msg_type);
         }
@@ -865,13 +890,14 @@ int main(int argc, char** argv) {
     if (!cname) exit(0);
     read_comm();
     rt_log("STARTED\n");
-    char savename2[1000];
     if (path) {
-        sprintf(savename2, "%s.save.rtube", path);
+        set_sate_state_name_prefix(path);
     } else {
-        sprintf(savename2, "./nocontent-%s.save.rtube", argv[1]);
+        char tmp[256] = { 0 };
+        snprintf(tmp, sizeof(tmp) - 1, "./nocontent-%s", argv[1]);
+        set_sate_state_name_prefix(tmp);
     }
-    load_state_1(savename2);
+    load_state_1(SAVE_STATE_ID_AUTO, 1);
     rt_log("save preloaded\n");
 
     int res = load_core(&core, cname);
@@ -913,7 +939,7 @@ int main(int argc, char** argv) {
     }
     rt_log("core run\n");
 
-    if (frames) save_state(savename2);
+    if (frames) save_state(SAVE_STATE_ID_AUTO);
 
     core.retro_unload_game();
     rt_log("game unloaded\n");

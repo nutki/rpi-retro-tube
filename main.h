@@ -37,6 +37,7 @@ enum rt_message_type {
     OPTION_SET, // char*[]
     SYNC_ON,
     SYNC_OFF,
+    RESET_GAME,
 
     OPTION_DESC = 1,
 };
@@ -63,7 +64,12 @@ struct message_keyboard_data {
         int posx, posy;
         int zoom;
     };
-
+#define SAVE_STATE_ID_TITLE -2
+#define SAVE_STATE_ID_AUTO -1
+struct message_save_state {
+    int type;
+    int id;
+};
 #define MAX_PORTS 4
 struct shared_memory {
     uint8_t frame_data[720*578*4];
