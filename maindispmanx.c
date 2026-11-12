@@ -49,6 +49,7 @@ struct drm_plane {
   uint32_t crtc_h_prop;
   uint32_t zpos_prop;
   uint32_t scaling_filter_prop;
+  uint32_t alpha_prop;
   uint64_t filter_default;
   uint64_t filter_nearest;
   int has_default_filter;
@@ -435,6 +436,12 @@ static int add_plane_property(struct drm_plane *plane, uint32_t property_id,
         plane->zpos_prop = property_id;
       found = 1;
     }
+  } else if (!strcmp(expected_name, "alpha")) {
+    if (!strcmp(info.name, expected_name)) {
+      if (!(info.flags & DRM_MODE_PROP_IMMUTABLE))
+        plane->alpha_prop = property_id;
+      found = 1;
+    }
   } else if (!strcmp(info.name, expected_name)) {
     *storage = property_id;
     found = 1;
@@ -468,6 +475,11 @@ static int populate_plane_properties(struct drm_plane *plane) {
     if (!strcmp(info.name, "zpos")) {
       free_property_info(&info);
       add_plane_property(plane, ids[i], values[i], "zpos", NULL);
+      continue;
+    }
+    if (!strcmp(info.name, "alpha")) {
+      free_property_info(&info);
+      add_plane_property(plane, ids[i], values[i], "alpha", NULL);
       continue;
     }
     uint32_t *destination = NULL;
@@ -676,6 +688,10 @@ static int add_plane_state(struct atomic_request *request,
   if (plane->zpos_prop &&
       !add_atomic_property(request, plane->id, DRM_MODE_OBJECT_PLANE,
                            plane->zpos_prop, zpos_value))
+    return 0;
+  if (plane->alpha_prop &&
+      !add_atomic_property(request, plane->id, DRM_MODE_OBJECT_PLANE,
+                           plane->alpha_prop, 0xFFFF))
     return 0;
   return 1;
 }
@@ -946,15 +962,8 @@ static int commit_frame(void) {
     } else {
       plane_filter = fullscreen ? plane->filter_nearest : plane->filter_default;
     }
-    uint64_t zpos_value = plane->zpos;
-    if (plane->zpos_prop) {
-      uint64_t rank = (uint64_t)fe->plane_index;
-      zpos_value = plane->zpos_min + rank;
-      if (zpos_value > plane->zpos_max)
-        zpos_value = plane->zpos_max;
-    }
     if (!add_plane_state(&request, fe, fe->buffers[buffer_index].fb_id, 1,
-                         plane_filter, zpos_value))
+                         plane_filter, plane->zpos))
       return 0;
     fe->plane_updated = 1;
   }
