@@ -125,6 +125,9 @@ static int display_ready;
 static int kms_active;
 static int filter_support_logged;
 static int screenX, screenY;
+// static int screenAspectX = 4, screenAspectY = 3;
+static int screenAspectX = 16, screenAspectY = 9;
+static double screenScale = 3;
 
 static int drm_ioctl(unsigned long request, void *arg) {
   return drmIoctl(drm_fd, request, arg);
@@ -348,10 +351,11 @@ static int get_connector_and_mode(drmModeModeInfoPtr mode,
 
     if (candidate_crtc) {
       for (int m = 0; m < connector->count_modes; m++) {
-        int64_t score =
-            (int64_t)connector->modes[m].hdisplay * connector->modes[m].vdisplay;
-        if (connector->modes[m].type & DRM_MODE_TYPE_PREFERRED)
-          score += INT64_C(1) << 40;
+        int64_t score = (int64_t)connector->modes[m].hdisplay * connector->modes[m].vdisplay;
+        rt_log("ASPECT bits %08lx (%dx%d), %s\n", (connector->modes[m].flags & DRM_MODE_FLAG_PIC_AR_MASK) >> 19, connector->modes[m].hdisplay, connector->modes[m].vdisplay, connector->modes[m].name);
+        if (connector->modes[m].type & DRM_MODE_TYPE_PREFERRED) score += INT64_C(0) << 40;
+        // if (connector->modes[m].hdisplay == 720) score += INT64_C(1) << 40;
+        // if ((connector->modes[m].flags & DRM_MODE_FLAG_PIC_AR_MASK) == DRM_MODE_FLAG_PIC_AR_16_9) score += INT64_C(1) << 39;
         if (score > best_score) {
           best_score = score;
           *mode = connector->modes[m];
@@ -654,7 +658,7 @@ static int add_plane_state(struct atomic_request *request,
                                plane->crtc_h_prop, 0);
   }
 
-  int target_w = (int)(((int64_t)fe->w * screenX * 3 / 4 / screenY) *
+  int target_w = (int)(((double)fe->w * screenX * screenAspectY / screenAspectX / screenY) *
                        (fe->aspect * fe->h / fe->w));
   int target_h = fe->h;
   int dest_w = apply_zoom(fe, target_w);
@@ -663,6 +667,10 @@ static int add_plane_state(struct atomic_request *request,
     return 0;
   int dest_x = (screenX - dest_w) / 2 + fe->x;
   int dest_y = (screenY - dest_h) / 2 + fe->y;
+  dest_x *= screenScale;
+  dest_y *= screenScale;
+  dest_w *= screenScale;
+  dest_h *= screenScale;
 
   if (!add_atomic_property(request, plane->id, DRM_MODE_OBJECT_PLANE,
                            plane->src_x_prop, 0) ||
@@ -1115,8 +1123,8 @@ void dispmanx_init(void) {
     return;
   }
 
-  screenX = selected_mode.hdisplay;
-  screenY = selected_mode.vdisplay;
+  screenX = selected_mode.hdisplay / screenScale;
+  screenY = selected_mode.vdisplay / screenScale;
   if (screenX <= 0 || screenY <= 0) {
     rt_log("selected DRM mode has invalid dimensions\n");
     dispmanx_close();
