@@ -32,8 +32,9 @@ void retro_log(enum retro_log_level level, const char *fmt, ...) {
 
 #include <alsa/asoundlib.h>
 snd_pcm_t *alsa;
-int audio_buffer_level = 0;
-int audio_init = 0;
+double audio_buffer_level = 0;
+int audio_reset_count = 0;
+int64_t audio_wait = 0;
 void alsa_init(int fq) {
     int err;
     if ((err = snd_pcm_open(&alsa, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
@@ -46,42 +47,35 @@ void alsa_init(int fq) {
                       2,
                       fq,
                       1,
-                      50000)) < 0) {   /* 0.05sec */
+                      100000)) < 0) {   /* 0.1sec */
         printf("Playback open error: %s\n", snd_strerror(err));
         exit(EXIT_FAILURE);
     }
-    audio_init = 1;
 }
 uint32_t tmp_audio_buffer[4096];
 void alsa_write(const int16_t *buffer, int len) {
-//    snd_pcm_prepare(alsa);
     snd_pcm_sframes_t f1 = -1,f2=-1;
+    int64_t t0 = timestamp();
     if (!alsa) {
         rt_log("audio frame without alsa (%d)\n", len);
         return;
     }
     int e = snd_pcm_avail_delay(alsa, &f1, &f2);
-    if (e == -32) {
-        snd_pcm_prepare(alsa);
+    if (e < 0) {
+        snd_pcm_recover(alsa, e, 1);
         e = snd_pcm_avail_delay(alsa, &f1, &f2);
-        rt_log("audio reset\n");
-        audio_init = 1;
+        audio_reset_count++;
     }
-    if (!e && f1 + f2) {
-        audio_buffer_level = 100 * f2 / (f1 + f2);
+    audio_buffer_level = !e && f1 + f2 ? 100. * f2 / (f1 + f2) : -1;
+    e = snd_pcm_writei(alsa, buffer, len);
+    if (e < 0) {
+        snd_pcm_recover(alsa, e, 1);
+        snd_pcm_writei(alsa, buffer, len);
+        audio_reset_count++;
+    } else if (e < len) {
+        rt_log("alsa short write (expected %i, wrote %li)\n", len, e);
     }
-//    rt_log("AUDIO BUFFER level %li, %li (%li) %d %d +%d\n", f1, f2, f1+f2, e, audio_buffer_level, len);
-    if (audio_init) {
-//        snd_pcm_writei(alsa, tmp_audio_buffer, f1 - len);
-        audio_init = 0;
-    }
-    snd_pcm_sframes_t frames = snd_pcm_writei(alsa, buffer, len);
-        if (frames < 0) {
-            printf("snd_pcm_writei failed: %s %d %li\n", snd_strerror(frames), len, frames);
-            frames = snd_pcm_recover(alsa, frames, 0);
-        } else if (frames > 0 && frames < len) {
-            printf("Short write (expected %i, wrote %li)\n", len, frames);
-        }
+    audio_wait += timestamp() - t0;
 }
 
 enum retro_pixel_format pixel_format;
@@ -442,7 +436,10 @@ struct par_table {
     int w, is50hz;
     float par;
 } *par_table;
+int video_frame_drops = 0;
+int64_t video_wait;
 void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_t pitch) {
+    uint64_t t0 = timestamp();
     static int frame = 0;
     if (dry_run) return;
     if (skip_frames) {
@@ -457,7 +454,7 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
             break;
         }
     }
-    if (frame < 10 || frame % 100 == 0) rt_log("VID%d: %d x %d pitch %d par %.3f -> %.3f\n", frame, w, h, pitch, rsavi.geometry.aspect_ratio * h / w, par_override);
+    // if (frame < 10 || frame % 100 == 0) rt_log("VID%d: %d x %d pitch %d par %.3f -> %.3f\n", frame, w, h, pitch, rsavi.geometry.aspect_ratio * h / w, par_override);
     frame++;
     if (!data) {
         return;
@@ -469,11 +466,7 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
         usleep(1000);
         acquire(&last_frame->mutex);
     }
-    if (frame_sync && last_frame->id) {
-        rt_log("frame dropped\n");
-    } else if (t) {
-//        rt_log("frame would be dropped, waited %dms\n", t);
-    }
+    if (last_frame->id) video_frame_drops++;
     last_frame->w = w;
     last_frame->h = h;
     last_frame->pitch = pitch;
@@ -483,6 +476,7 @@ void retro_video_refresh(const void *data, unsigned int w, unsigned int h, size_
     last_frame->id = ++frame_cnt;
     memcpy(shared_mem->frame_data, data, h * pitch);
     release(&last_frame->mutex);
+    video_wait += timestamp() - t0;
 }
 #define MAX_AUDIO_SAMPLES 1000
 int16_t audiobuf[MAX_AUDIO_SAMPLES * 2];
@@ -930,6 +924,8 @@ int main(int argc, char** argv) {
     load_state_2();
 
     int frames = 0;
+    int64_t t0 = timestamp();
+    int64_t emu_time = 0;
     for(int i = 0; !done; i++) {
         if (core_needs_reset) {
             core.retro_reset();
@@ -943,8 +939,32 @@ int main(int argc, char** argv) {
             frames++;
         }
         int64_t frame_time_ms = 1000000 / rsavi.timing.fps;
-        int64_t d = timestamp() - s;
+        int64_t now = timestamp();
+        int64_t d = now - s;
+        emu_time += d;
         if (frame_time_ms > d && !frame_sync) usleep(frame_time_ms - d);
+        int64_t elapsed = now - t0;
+        if (play_state &&  elapsed > 1000000) {
+            float aspect = last_frame->aspect;
+            static int prev_frame_cnt = 0;
+            static int64_t prev_now = -1;
+            int64_t precise_elapsed = prev_now == -1 ? elapsed : now - prev_now;
+            if (precise_elapsed <= 0) precise_elapsed = 1;
+            float usage_emu = 100. * (emu_time - audio_wait - video_wait)/precise_elapsed;
+            float usage_audio = 100. * audio_wait/precise_elapsed;
+            float usage_video = 100. * video_wait/precise_elapsed;
+            int frames = frame_cnt - prev_frame_cnt;
+            prev_frame_cnt = frame_cnt;
+            prev_now = now;
+            int w = last_frame->w, h = last_frame->h, pitch = last_frame->pitch;
+            rt_log("V: %dfps %d x %d pitch %d par %.3f -> %.3f (%d), A:%5.1f %d E:%4.1f%%e %4.1f%%v %4.1f%%a\n",
+                frames, w, h, pitch, rsavi.geometry.aspect_ratio, aspect, video_frame_drops,
+                audio_buffer_level, audio_reset_count,
+                usage_emu, usage_video, usage_audio);
+            audio_reset_count = video_frame_drops = 0;
+            emu_time = video_wait = audio_wait = 0;
+            t0 += elapsed / 1000000 * 1000000;
+        }
     }
     rt_log("core run\n");
 

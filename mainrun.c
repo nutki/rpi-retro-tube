@@ -15,7 +15,7 @@
 struct core_worker {
     int comm_socket;
     int worker_pid;
-    int last_id;
+    // int last_id;
     struct shared_memory *memory;
 };
 
@@ -100,7 +100,7 @@ struct core_worker *core_start(char *id, char *content) {
     worker->comm_socket = s[0];
     worker->worker_pid = pid;
     worker->memory = mem;
-    worker->last_id = 0;
+    // worker->last_id = 0;
     return worker;
 }
 void core_message(struct core_worker *core, int message) {
@@ -315,10 +315,10 @@ int main() {
             //    rt_log("frame dupped\n");
             } else {
                 dispmanx_update_frame(list[i].gfx_id, last_frame, list[i].worker->memory->frame_data);
-                if (worker->last_id + 1 != last_frame->id) {
-                    rt_log("%d frame(s) dropped\n", last_frame->id - worker->last_id - 1);
-                }
-                worker->last_id = last_frame->id;
+                // if (worker->last_id + 1 != last_frame->id) {
+                //     rt_log("%d frame(s) dropped\n", last_frame->id - worker->last_id - 1);
+                // }
+                // worker->last_id = last_frame->id;
                 last_frame->id = 0;
             }
             release(&last_frame->mutex);
